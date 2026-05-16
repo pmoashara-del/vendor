@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ItsNumberGate } from "@/components/ItsNumberGate";
+import {
+  buildGSTIN,
+  gstinBelongsToPAN,
+  gstStateNumericFromVendorState,
+  validatePAN,
+} from "@/lib/india-pan-gstin";
 
 const IFSC_FORMAT_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
@@ -155,9 +161,32 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [ifscLookupBusy, setIfscLookupBusy] = useState(false);
   const [ifscLookup, setIfscLookup] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const gstinUserEdited = useRef(false);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setF((p) => ({ ...p, [key]: value }));
+  }
+
+  function suggestedGstinForPan(prev: FormState, panRaw: string): string {
+    const pan = panRaw.toUpperCase().replace(/\s/g, "");
+    if (!validatePAN(pan)) return prev.gstin;
+    const stateCode = gstStateNumericFromVendorState(prev.state);
+    let entity = 1;
+    const g = prev.gstin;
+    if (g.length === 15 && gstinBelongsToPAN(g, pan)) {
+      const d = parseInt(g[12], 10);
+      if (d >= 1 && d <= 9) entity = d;
+    }
+    if (g.length === 15 && !gstinBelongsToPAN(g, pan)) return prev.gstin;
+    return buildGSTIN(pan, stateCode, entity);
+  }
+
+  function applyAutoGstin(prev: FormState, panOverride?: string): FormState {
+    if (!prev.gst_registered || gstinUserEdited.current) return prev;
+    const panSrc = panOverride ?? prev.pan_number;
+    const nextGst = suggestedGstinForPan(prev, panSrc);
+    if (nextGst === prev.gstin) return prev;
+    return { ...prev, gstin: nextGst };
   }
 
   function unlockForm(digits: string) {
@@ -199,24 +228,36 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
   useEffect(() => {
     const code = f.ifsc_code.toUpperCase().replace(/\s/g, "");
 
+    const runAfterPaint = (fn: () => void) => {
+      queueMicrotask(fn);
+    };
+
     if (code.length === 0) {
-      setIfscLookup(null);
-      setIfscLookupBusy(false);
+      runAfterPaint(() => {
+        setIfscLookup(null);
+        setIfscLookupBusy(false);
+      });
       return;
     }
     if (code.length < 11) {
-      setIfscLookup(null);
-      setIfscLookupBusy(false);
+      runAfterPaint(() => {
+        setIfscLookup(null);
+        setIfscLookupBusy(false);
+      });
       return;
     }
 
     if (!IFSC_FORMAT_REGEX.test(code)) {
-      setIfscLookup({ kind: "err", text: "Wrong IFSC code" });
-      setIfscLookupBusy(false);
+      runAfterPaint(() => {
+        setIfscLookup({ kind: "err", text: "Wrong IFSC code" });
+        setIfscLookupBusy(false);
+      });
       return;
     }
 
-    setIfscLookup(null);
+    runAfterPaint(() => {
+      setIfscLookup(null);
+    });
     const ac = new AbortController();
     const timer = setTimeout(async () => {
       setIfscLookupBusy(true);
@@ -292,6 +333,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
       setItsNumber("");
       setItsError(null);
       setIfscLookup(null);
+      gstinUserEdited.current = false;
     } catch {
       setMsg({ type: "err", text: "Network error. Please try again." });
     } finally {
@@ -411,7 +453,15 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
         </div>
         <div>
           <label className={labelClass()}>State *</label>
-          <input required className={inputClass()} value={f.state} onChange={(e) => set("state", e.target.value)} />
+          <input
+            required
+            className={inputClass()}
+            value={f.state}
+            onChange={(e) => {
+              const state = e.target.value;
+              setF((prev) => applyAutoGstin({ ...prev, state }));
+            }}
+          />
         </div>
         <div>
           <label className={labelClass()}>Country *</label>
@@ -502,7 +552,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             required
             className={inputClass()}
             value={f.pan_number}
-            onChange={(e) => set("pan_number", e.target.value.toUpperCase())}
+            onChange={(e) => {
+              const pan = e.target.value.toUpperCase();
+              setF((prev) => applyAutoGstin({ ...prev, pan_number: pan }, pan));
+            }}
             maxLength={10}
           />
         </div>
@@ -514,11 +567,18 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             value={f.gst_registered ? "yes" : "no"}
             onChange={(e) => {
               const yes = e.target.value === "yes";
-              set("gst_registered", yes);
-              if (!yes) {
-                set("gstin", "");
-                set("doc_gst_certificate", false);
-              }
+              gstinUserEdited.current = false;
+              setF((prev) => {
+                if (!yes) {
+                  return {
+                    ...prev,
+                    gst_registered: false,
+                    gstin: "",
+                    doc_gst_certificate: false,
+                  };
+                }
+                return applyAutoGstin({ ...prev, gst_registered: true });
+              });
             }}
           >
             <option value="no">No</option>
@@ -532,11 +592,17 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             className={inputClass() + (f.gst_registered ? "" : " opacity-60")}
             value={f.gstin}
             maxLength={15}
-            onChange={(e) => set("gstin", e.target.value.toUpperCase())}
-            placeholder={f.gst_registered ? "Enter full 15-character GSTIN" : ""}
+            onChange={(e) => {
+              gstinUserEdited.current = true;
+              set("gstin", e.target.value.toUpperCase());
+            }}
+            placeholder={f.gst_registered ? "Filled from PAN + state; edit if needed" : ""}
           />
           {f.gst_registered ? (
-            <p className="mt-1 text-xs text-zinc-500">Enter your complete GSTIN manually (not derived from PAN).</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Suggested GSTIN is built from your PAN and state (last digit is a placeholder; replace with your actual
+              GSTIN if it differs).
+            </p>
           ) : null}
         </div>
         <div>
@@ -992,6 +1058,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             setFormUnlocked(false);
             setItsNumber("");
             setItsError(null);
+            gstinUserEdited.current = false;
           }}
         >
           Reset form

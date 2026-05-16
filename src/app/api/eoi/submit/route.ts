@@ -46,6 +46,7 @@ export async function POST(req: Request) {
     turnover_range: p.turnover_range ?? null,
     capability_description: p.capability_description,
     previous_work: p.previous_work ?? null,
+    its_number: p.its_number,
     pan_number: p.pan_number,
     gst_number: p.gst_number,
     gst_status: p.gst_status,
