@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { validateGSTIN } from "@/lib/eoi/indian-gst-state";
+import { panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -73,6 +74,13 @@ export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "GST number must be omitted unless GST status is Registered",
       path: ["gst_number"],
+    });
+  }
+  if (!panFourthCharMatchesEntityType(data.pan_number, data.entity_type)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "PAN 4th character does not match the selected entity type",
+      path: ["pan_number"],
     });
   }
 });

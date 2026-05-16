@@ -21,6 +21,7 @@ import {
   suggestGstinFromPanAndLocation,
   validateGSTIN,
 } from "@/lib/eoi/indian-gst-state";
+import { panEntityConsistencyMessage, panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 
 type Step = 1 | 2 | 3;
 
@@ -107,7 +108,9 @@ export function ExpressionOfInterestForm() {
       if (!address.trim()) e.address = true;
       const itsDigits = itsNumber.replace(/\D/g, "");
       if (itsDigits.length > 0 && itsDigits.length !== ITS_DIGITS) e.itsNumber = true;
-      if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
+      const panNorm = pan.toUpperCase().replace(/\s/g, "");
+      if (!panRe.test(panNorm)) e.pan = true;
+      else if (entityType && !panFourthCharMatchesEntityType(panNorm, entityType)) e.panEntity = true;
       if (!gstStatus) e.gstStatus = true;
       if (gstStatus === "Registered" && !validateGSTIN(gstNum)) e.gstNum = true;
     }
@@ -323,7 +326,7 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label req>Type of Entity</Label>
                     <select
-                      className={fieldClass(!!errs.entityType)}
+                      className={fieldClass(!!errs.entityType || !!errs.panEntity)}
                       value={entityType}
                       onChange={(e) => setEntityType(e.target.value)}
                     >
@@ -442,7 +445,7 @@ export function ExpressionOfInterestForm() {
                   <div className="sm:col-span-2">
                     <Label req>PAN Number</Label>
                     <input
-                      className={fieldClass(!!errs.pan)}
+                      className={fieldClass(!!errs.pan || !!errs.panEntity)}
                       value={pan}
                       maxLength={10}
                       onChange={(e) => {
@@ -453,6 +456,11 @@ export function ExpressionOfInterestForm() {
                       placeholder="ABCDE1234F"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
+                    {errs.panEntity ? (
+                      <p className="mt-1 text-xs leading-snug text-red-600">
+                        {panEntityConsistencyMessage(entityType, pan)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="sm:col-span-2">
                     <Label req>GST Status</Label>
