@@ -14,7 +14,7 @@ import {
   EOI_ZONES,
 } from "@/lib/eoi/options";
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 const panRe = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
@@ -52,7 +52,6 @@ export function ExpressionOfInterestForm() {
   const [gstNum, setGstNum] = useState("");
   const [gstStatus, setGstStatus] = useState("");
   const [msme, setMsme] = useState("");
-  const [certs, setCerts] = useState("");
   const [source, setSource] = useState("");
 
   const [declare, setDeclare] = useState(false);
@@ -78,6 +77,8 @@ export function ExpressionOfInterestForm() {
       if (mob.length !== 10) e.mobile = true;
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = true;
       if (!address.trim()) e.address = true;
+      if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
+      if (!gstStatus) e.gstStatus = true;
     }
     if (s === 2) {
       if (!category) e.category = true;
@@ -85,17 +86,13 @@ export function ExpressionOfInterestForm() {
       if (!expYrs) e.expYrs = true;
       if (!capability.trim()) e.capability = true;
     }
-    if (s === 3) {
-      if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
-      if (!gstStatus) e.gstStatus = true;
-    }
     setErrs(e);
     return Object.keys(e).length === 0;
   }
 
   function next() {
     if (!validate(step)) return;
-    setStep((s) => (s < 4 ? ((s + 1) as Step) : s));
+    setStep((s) => (s < 3 ? ((s + 1) as Step) : s));
     setFormErr(null);
   }
   function back() {
@@ -104,8 +101,12 @@ export function ExpressionOfInterestForm() {
   }
 
   async function submit() {
-    if (!validate(3)) {
-      setStep(3);
+    if (!validate(1)) {
+      setStep(1);
+      return;
+    }
+    if (!validate(2)) {
+      setStep(2);
       return;
     }
     if (!declare) {
@@ -136,7 +137,7 @@ export function ExpressionOfInterestForm() {
       gst_number: gstNum.trim() ? gstNum.toUpperCase().replace(/\s/g, "") : null,
       gst_status: gstStatus,
       msme_status: msme || null,
-      certifications: certs.trim() || null,
+      certifications: null,
       source: source || null,
       declaration_accepted: true,
     };
@@ -189,15 +190,15 @@ export function ExpressionOfInterestForm() {
       {/* Progress */}
       <div className="mx-auto mb-8 max-w-2xl px-4">
         <div className="mb-2 flex justify-between text-[10px] uppercase tracking-wider text-[#8a7a6e]">
-          <span>Step {step} of 4</span>
+          <span>Step {step} of 3</span>
           <span>
-            {step === 1 ? "Business" : step === 2 ? "Offerings" : step === 3 ? "Compliance" : "Declaration"}
+            {step === 1 ? "Business & tax" : step === 2 ? "Offerings" : "Declaration"}
           </span>
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-[#e8ddd0]">
           <div
             className="h-full rounded-full bg-[#b8860b] transition-all duration-500"
-            style={{ width: `${(step / 4) * 100}%` }}
+            style={{ width: `${(step / 3) * 100}%` }}
           />
         </div>
       </div>
@@ -211,7 +212,7 @@ export function ExpressionOfInterestForm() {
           <Panel
             icon="🏢"
             title="Business Information"
-            desc="Basic details about your firm, proprietorship, or company"
+            desc="Your firm, contact details, and basic tax information"
             body={
               <>
                 <Notice text="This is an Expression of Interest only. Submission does not guarantee empanelment. Shortlisted vendors will be contacted for document verification and final registration." />
@@ -296,165 +297,7 @@ export function ExpressionOfInterestForm() {
                     />
                   </div>
                 </div>
-              </>
-            }
-            foot={
-              <>
-                <div />
-                <button
-                  type="button"
-                  onClick={next}
-                  className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-white shadow-md transition hover:bg-[#a07808]"
-                >
-                  Next — Offerings →
-                </button>
-              </>
-            }
-          />
-        )}
-
-        {step === 2 && (
-          <Panel
-            icon="📦"
-            title="Offerings & Capability"
-            desc="Describe the goods or services you wish to supply"
-            body={
-              <>
-                <div>
-                  <Label req>Primary Category of Supply</Label>
-                  <select
-                    className={fieldClass(!!errs.category)}
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                  >
-                    <option value="">— Select a category —</option>
-                    {EOI_CATEGORY_GROUPS.map((g) => (
-                      <optgroup key={g.label} label={g.label}>
-                        {g.options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-                <div className="mt-5">
-                  <Label>Departments / Areas You Can Serve</Label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {EOI_DEPARTMENTS.map((d) => (
-                      <label key={d} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
-                        <input
-                          type="checkbox"
-                          checked={!!depts[d]}
-                          onChange={() => toggleDept(d)}
-                          className="accent-[#b8860b]"
-                        />
-                        {EOI_DEPARTMENT_LABELS[d] ?? d}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <Divider label="Geographic Coverage" />
-                <div>
-                  <Label req>Zones / Cities You Can Operate In</Label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {EOI_ZONES.map((z) => (
-                      <label key={z} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
-                        <input
-                          type="checkbox"
-                          checked={!!zones[z]}
-                          onChange={() => toggleZone(z)}
-                          className="accent-[#b8860b]"
-                        />
-                        {z}
-                      </label>
-                    ))}
-                  </div>
-                  {errs.zones ? <p className="mt-1 text-xs text-red-600">Select at least one zone</p> : null}
-                </div>
-                <Divider label="Experience & Scale" />
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div>
-                    <Label req>Years of Experience in This Field</Label>
-                    <select
-                      className={fieldClass(!!errs.expYrs)}
-                      value={expYrs}
-                      onChange={(e) => setExpYrs(e.target.value)}
-                    >
-                      <option value="">— Select —</option>
-                      {EOI_EXPERIENCE.map((x) => (
-                        <option key={x} value={x}>
-                          {x}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <Label>Annual Turnover Range</Label>
-                    <select className={fieldClass(false)} value={turnover} onChange={(e) => setTurnover(e.target.value)}>
-                      <option value="">— Optional —</option>
-                      {EOI_TURNOVER.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label req>Brief Description of Capability</Label>
-                    <textarea
-                      rows={4}
-                      maxLength={500}
-                      className={fieldClass(!!errs.capability)}
-                      value={capability}
-                      onChange={(e) => setCapability(e.target.value)}
-                    />
-                    <p className="text-right text-[11px] text-[#8a7a6e]">{capability.length}/500</p>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label>Previous Work with Similar Organisations (Optional)</Label>
-                    <textarea
-                      rows={3}
-                      maxLength={400}
-                      className={fieldClass(false)}
-                      value={prevWork}
-                      onChange={(e) => setPrevWork(e.target.value)}
-                    />
-                    <p className="text-right text-[11px] text-[#8a7a6e]">{prevWork.length}/400</p>
-                  </div>
-                </div>
-              </>
-            }
-            foot={
-              <>
-                <button
-                  type="button"
-                  onClick={back}
-                  className="rounded-sm border border-[#e8ddd0] bg-transparent px-6 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-[#4a3f35] hover:border-[#8a7a6e]"
-                >
-                  ← Back
-                </button>
-                <button
-                  type="button"
-                  onClick={next}
-                  className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-white shadow-md hover:bg-[#a07808]"
-                >
-                  Next — Compliance →
-                </button>
-              </>
-            }
-          />
-        )}
-
-        {step === 3 && (
-          <Panel
-            icon="📋"
-            title="Statutory & Compliance Details"
-            desc="Basic tax and registration details for verification purposes"
-            body={
-              <>
-                <Notice text="This information is used for preliminary verification only. Full documentation (PAN card, GST certificate, etc.) will be requested at the time of formal empanelment." />
+                <Divider label="PAN, GST & MSME" />
                 <div className="grid gap-5 sm:grid-cols-2">
                   <div>
                     <Label req>PAN Number</Label>
@@ -523,24 +366,143 @@ export function ExpressionOfInterestForm() {
                     </div>
                   </div>
                 </div>
-                <Divider label="Supporting Information" />
+              </>
+            }
+            foot={
+              <>
+                <div />
+                <button
+                  type="button"
+                  onClick={next}
+                  className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-white shadow-md transition hover:bg-[#a07808]"
+                >
+                  Next — Offerings →
+                </button>
+              </>
+            }
+          />
+        )}
+
+        {step === 2 && (
+          <Panel
+            icon="📦"
+            title="Offerings & Capability"
+            desc="Describe the goods or services you wish to supply"
+            body={
+              <>
                 <div>
-                  <Label>Certifications, Licences or Approvals</Label>
-                  <textarea
-                    rows={3}
-                    maxLength={300}
-                    className={fieldClass(false)}
-                    value={certs}
-                    onChange={(e) => setCerts(e.target.value)}
-                  />
+                  <Label req>Primary Category of Supply</Label>
+                  <select
+                    className={fieldClass(!!errs.category)}
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                  >
+                    <option value="">— Select a category —</option>
+                    {EOI_CATEGORY_GROUPS.map((g) => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.options.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
                 </div>
-                <div className="mt-4">
-                  <Label>How Did You Hear About This EOI?</Label>
+                <div className="mt-5">
+                  <Label>Departments / Areas You Can Serve</Label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {EOI_DEPARTMENTS.map((d) => (
+                      <label key={d} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
+                        <input
+                          type="checkbox"
+                          checked={!!depts[d]}
+                          onChange={() => toggleDept(d)}
+                          className="accent-[#b8860b]"
+                        />
+                        {EOI_DEPARTMENT_LABELS[d] ?? d}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <Divider label="Geographic Coverage" />
+                <div>
+                  <Label req>Cities / areas you can operate in</Label>
+                  <p className="mb-2 text-[12px] text-[#8a7a6e]">Select all that apply for this programme.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {EOI_ZONES.map((z) => (
+                      <label key={z} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
+                        <input
+                          type="checkbox"
+                          checked={!!zones[z]}
+                          onChange={() => toggleZone(z)}
+                          className="accent-[#b8860b]"
+                        />
+                        {z}
+                      </label>
+                    ))}
+                  </div>
+                  {errs.zones ? <p className="mt-1 text-xs text-red-600">Select at least one option</p> : null}
+                </div>
+                <Divider label="Experience & Scale" />
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <Label req>Years of Experience in This Field</Label>
+                    <select
+                      className={fieldClass(!!errs.expYrs)}
+                      value={expYrs}
+                      onChange={(e) => setExpYrs(e.target.value)}
+                    >
+                      <option value="">— Select —</option>
+                      {EOI_EXPERIENCE.map((x) => (
+                        <option key={x} value={x}>
+                          {x}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Annual Turnover Range</Label>
+                    <select className={fieldClass(false)} value={turnover} onChange={(e) => setTurnover(e.target.value)}>
+                      <option value="">— Optional —</option>
+                      {EOI_TURNOVER.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label req>Brief Description of Capability</Label>
+                    <textarea
+                      rows={4}
+                      maxLength={500}
+                      className={fieldClass(!!errs.capability)}
+                      value={capability}
+                      onChange={(e) => setCapability(e.target.value)}
+                    />
+                    <p className="text-right text-[11px] text-[#8a7a6e]">{capability.length}/500</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Previous Work with Similar Organisations (Optional)</Label>
+                    <textarea
+                      rows={3}
+                      maxLength={400}
+                      className={fieldClass(false)}
+                      value={prevWork}
+                      onChange={(e) => setPrevWork(e.target.value)}
+                    />
+                    <p className="text-right text-[11px] text-[#8a7a6e]">{prevWork.length}/400</p>
+                  </div>
+                </div>
+                <Divider label="How you heard about this EOI" />
+                <div>
+                  <Label>How did you hear about this EOI?</Label>
                   <select className={fieldClass(false)} value={source} onChange={(e) => setSource(e.target.value)}>
                     <option value="">— Optional —</option>
-                    {EOI_SOURCE.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
+                    {EOI_SOURCE.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
                       </option>
                     ))}
                   </select>
@@ -552,14 +514,14 @@ export function ExpressionOfInterestForm() {
                 <button
                   type="button"
                   onClick={back}
-                  className="rounded-sm border border-[#e8ddd0] px-6 py-2.5 text-[13px] font-semibold uppercase text-[#4a3f35]"
+                  className="rounded-sm border border-[#e8ddd0] bg-transparent px-6 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-[#4a3f35] hover:border-[#8a7a6e]"
                 >
                   ← Back
                 </button>
                 <button
                   type="button"
                   onClick={next}
-                  className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase text-white hover:bg-[#a07808]"
+                  className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-white shadow-md hover:bg-[#a07808]"
                 >
                   Next — Declaration →
                 </button>
@@ -568,7 +530,7 @@ export function ExpressionOfInterestForm() {
           />
         )}
 
-        {step === 4 && (
+        {step === 3 && (
           <Panel
             icon="📝"
             title="Declaration & Submission"
@@ -588,6 +550,10 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-medium">
                       {cpName} · {email}
                     </dd>
+                    <dt className="text-[#8a7a6e]">PAN</dt>
+                    <dd className="font-mono text-[13px] font-medium">{pan.toUpperCase().replace(/\s/g, "")}</dd>
+                    <dt className="text-[#8a7a6e]">GST status</dt>
+                    <dd className="font-medium">{gstStatus || "—"}</dd>
                   </dl>
                 </div>
                 <div className="mb-5 rounded-sm border border-[#e8ddd0] bg-[#f5f0e8] p-5 text-[13px] leading-relaxed text-[#4a3f35]">

@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-const gstOptionalRegex = /^([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]{1})?$/;
 
 export const eoiSubmitSchema = z.object({
   business_name: z.string().min(1).max(500),

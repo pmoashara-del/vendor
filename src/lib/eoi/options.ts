@@ -77,7 +77,8 @@ export const EOI_DEPARTMENT_LABELS: Record<string, string> = {
   All: "All Departments",
 };
 
-export const EOI_ZONES = ["Indore", "Bhopal", "Ujjain", "Ratlam", "Dewas", "Dhar", "Pan MP", "Pan India"] as const;
+/** Geographic coverage for this programme — Indore and Madhya Pradesh only */
+export const EOI_ZONES = ["Indore", "Madhya Pradesh"] as const;
 
 export const EOI_ENTITY_TYPES = [
   "Proprietorship",
