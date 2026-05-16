@@ -13,10 +13,25 @@ import {
   EOI_TURNOVER,
   EOI_ZONES,
 } from "@/lib/eoi/options";
+import {
+  buildGSTIN,
+  DEFAULT_GST_STATE_CODE,
+  gstinBelongsToPAN,
+  validateGSTIN,
+  validatePAN,
+} from "@/lib/india-tax-ids";
 
 type Step = 1 | 2 | 3 | 4;
 
-const panRe = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+function nextGstForPan(panField: string, prevGst: string): string {
+  const panNorm = panField.toUpperCase().replace(/\s/g, "");
+  if (!validatePAN(panNorm)) return prevGst;
+  const built = buildGSTIN(panNorm, DEFAULT_GST_STATE_CODE, 1);
+  const g = prevGst.trim().toUpperCase().replace(/\s/g, "");
+  if (!g) return built;
+  if (validateGSTIN(g) && !gstinBelongsToPAN(g, panNorm)) return g;
+  return built;
+}
 
 function fieldClass(err: boolean) {
   return `w-full rounded-sm border bg-white px-3.5 py-2.5 text-sm text-[#1a1410] outline-none transition focus:border-[#d4a843] focus:ring-[3px] focus:ring-[rgba(184,134,11,0.1)] ${
@@ -50,6 +65,7 @@ export function ExpressionOfInterestForm() {
 
   const [pan, setPan] = useState("");
   const [gstNum, setGstNum] = useState("");
+  const [itsNumber, setItsNumber] = useState("");
   const [gstStatus, setGstStatus] = useState("");
   const [msme, setMsme] = useState("");
   const [certs, setCerts] = useState("");
@@ -86,7 +102,12 @@ export function ExpressionOfInterestForm() {
       if (!capability.trim()) e.capability = true;
     }
     if (s === 3) {
-      if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
+      const panNorm = pan.toUpperCase().replace(/\s/g, "");
+      if (!validatePAN(panNorm)) e.pan = true;
+      const itsDigits = itsNumber.replace(/\D/g, "");
+      if (itsDigits.length > 0 && itsDigits.length !== 8) e.itsNumber = true;
+      const g = gstNum.trim().toUpperCase().replace(/\s/g, "");
+      if (g && !validateGSTIN(g)) e.gstNum = true;
       if (!gstStatus) e.gstStatus = true;
     }
     setErrs(e);
@@ -133,6 +154,7 @@ export function ExpressionOfInterestForm() {
       capability_description: capability.trim(),
       previous_work: prevWork.trim() || null,
       pan_number: pan.toUpperCase().replace(/\s/g, ""),
+      its_number: itsNumber.replace(/\D/g, "") || null,
       gst_number: gstNum.trim() ? gstNum.toUpperCase().replace(/\s/g, "") : null,
       gst_status: gstStatus,
       msme_status: msme || null,
@@ -462,7 +484,11 @@ export function ExpressionOfInterestForm() {
                       className={fieldClass(!!errs.pan)}
                       value={pan}
                       maxLength={10}
-                      onChange={(e) => setPan(e.target.value.toUpperCase())}
+                      onChange={(e) => {
+                        const v = e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 10);
+                        setPan(v);
+                        setGstNum((prev) => nextGstForPan(v, prev));
+                      }}
                       placeholder="ABCDE1234F"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
@@ -470,12 +496,31 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label>GST Registration Number</Label>
                     <input
-                      className={fieldClass(false)}
+                      className={fieldClass(!!errs.gstNum)}
                       value={gstNum}
                       maxLength={15}
-                      onChange={(e) => setGstNum(e.target.value.toUpperCase())}
+                      onChange={(e) => setGstNum(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15))}
                       placeholder="Leave blank if not registered"
                     />
+                    <p className="mt-1 text-[11px] text-[#8a7a6e]">
+                      When your PAN is valid, a provisional GSTIN is filled (Madhya Pradesh / 23). Edit if your
+                      registration uses another state or entity number.
+                    </p>
+                    {errs.gstNum ? <p className="mt-1 text-xs text-red-600">Enter a valid 15-character GSTIN or clear the field</p> : null}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>ITS number</Label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={8}
+                      className={fieldClass(!!errs.itsNumber)}
+                      value={itsNumber}
+                      onChange={(e) => setItsNumber(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                      placeholder="Optional — 8 digits for community members"
+                    />
+                    <p className="mt-1 text-[11px] text-[#8a7a6e]">Optional. If you enter a value, it must be exactly 8 digits.</p>
                   </div>
                   <div className="sm:col-span-2">
                     <Label req>GST Status</Label>

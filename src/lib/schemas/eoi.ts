@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { validateGSTIN, validatePAN } from "@/lib/india-tax-ids";
 
-const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
-const gstOptionalRegex = /^([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]{1})?$/;
+const itsDigitsRegex = /^\d{8}$/;
 
 export const eoiSubmitSchema = z.object({
   business_name: z.string().min(1).max(500),
@@ -28,7 +28,16 @@ export const eoiSubmitSchema = z.object({
   pan_number: z
     .string()
     .transform((s) => s.toUpperCase().replace(/\s/g, ""))
-    .refine((s) => panRegex.test(s), "Invalid PAN"),
+    .refine((s) => validatePAN(s), "Invalid PAN"),
+  its_number: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v == null || v === "") return null;
+      return String(v).replace(/\D/g, "");
+    })
+    .refine((s): s is string | null => s === null || itsDigitsRegex.test(s), {
+      message: "ITS number must be exactly 8 digits or left blank",
+    }),
   gst_number: z
     .union([z.string(), z.null(), z.undefined()])
     .transform((v) => {
@@ -36,7 +45,7 @@ export const eoiSubmitSchema = z.object({
       const t = String(v).toUpperCase().replace(/\s/g, "");
       return t === "" ? null : t;
     })
-    .refine((v) => v === null || (v.length === 15 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]$/.test(v)), {
+    .refine((v) => v === null || (v.length === 15 && validateGSTIN(v)), {
       message: "Invalid GSTIN or leave blank",
     }),
   gst_status: z.string().min(1).max(100),

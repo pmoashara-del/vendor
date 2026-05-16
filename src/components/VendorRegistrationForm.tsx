@@ -2,6 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { ItsNumberGate } from "@/components/ItsNumberGate";
+import {
+  buildGSTIN,
+  DEFAULT_GST_STATE_CODE,
+  gstinBelongsToPAN,
+  validateGSTIN,
+  validatePAN,
+} from "@/lib/india-tax-ids";
 
 const IFSC_FORMAT_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
@@ -133,6 +140,19 @@ function labelClass() {
 
 function inputClass() {
   return "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none ring-zinc-400 focus:border-zinc-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100";
+}
+
+/** When GST is enabled, keep GSTIN aligned with PAN unless the user entered a valid GSTIN for another entity. */
+function applyPanChange(prev: FormState, panRaw: string): FormState {
+  const pan = panRaw.toUpperCase().replace(/\s/g, "").slice(0, 10);
+  const next: FormState = { ...prev, pan_number: pan };
+  if (!next.gst_registered) return next;
+  if (!validatePAN(pan)) return next;
+  const built = buildGSTIN(pan, DEFAULT_GST_STATE_CODE, 1);
+  const cur = next.gstin.trim().toUpperCase();
+  if (!cur) return { ...next, gstin: built };
+  if (validateGSTIN(cur) && !gstinBelongsToPAN(cur, pan)) return next;
+  return { ...next, gstin: built };
 }
 
 function SectionTitle({ n, title }: { n: number; title: string }) {
@@ -502,7 +522,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             required
             className={inputClass()}
             value={f.pan_number}
-            onChange={(e) => set("pan_number", e.target.value.toUpperCase())}
+            onChange={(e) => setF((p) => applyPanChange(p, e.target.value))}
             maxLength={10}
           />
         </div>
@@ -514,11 +534,18 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             value={f.gst_registered ? "yes" : "no"}
             onChange={(e) => {
               const yes = e.target.value === "yes";
-              set("gst_registered", yes);
               if (!yes) {
+                set("gst_registered", false);
                 set("gstin", "");
                 set("doc_gst_certificate", false);
+                return;
               }
+              setF((prev) => {
+                const pan = prev.pan_number.toUpperCase().replace(/\s/g, "");
+                const gstin =
+                  validatePAN(pan) ? buildGSTIN(pan, DEFAULT_GST_STATE_CODE, 1) : prev.gstin;
+                return { ...prev, gst_registered: true, gstin };
+              });
             }}
           >
             <option value="no">No</option>
@@ -536,7 +563,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             placeholder={f.gst_registered ? "Enter full 15-character GSTIN" : ""}
           />
           {f.gst_registered ? (
-            <p className="mt-1 text-xs text-zinc-500">Enter your complete GSTIN manually (not derived from PAN).</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              A provisional GSTIN is suggested from your PAN (state 23 — Madhya Pradesh). Replace it with your actual
+              GSTIN if different.
+            </p>
           ) : null}
         </div>
         <div>

@@ -47,6 +47,7 @@ export async function POST(req: Request) {
     capability_description: p.capability_description,
     previous_work: p.previous_work ?? null,
     pan_number: p.pan_number,
+    its_number: p.its_number,
     gst_number: p.gst_number,
     gst_status: p.gst_status,
     msme_status: p.msme_status ?? null,
