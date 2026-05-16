@@ -13,6 +13,7 @@ import {
   EOI_TURNOVER,
   EOI_ZONES,
 } from "@/lib/eoi/options";
+import { GST_STATE_OPTIONS, suggestGstinFromPanAndLocation } from "@/lib/eoi/indian-gst-state";
 
 type Step = 1 | 2 | 3;
 
@@ -35,6 +36,8 @@ export function ExpressionOfInterestForm() {
   const [bizName, setBizName] = useState("");
   const [entityType, setEntityType] = useState("");
   const [estYr, setEstYr] = useState("");
+  const [businessCity, setBusinessCity] = useState("Indore");
+  const [businessState, setBusinessState] = useState("Madhya Pradesh");
   const [address, setAddress] = useState("");
   const [cpName, setCpName] = useState("");
   const [cpRole, setCpRole] = useState("");
@@ -67,6 +70,17 @@ export function ExpressionOfInterestForm() {
     setZones((z) => ({ ...z, [k]: !z[k] }));
   }
 
+  function syncGstFromPanAndAddress(panVal: string, cityVal: string, stateVal: string) {
+    setGstNum((prev) =>
+      suggestGstinFromPanAndLocation({
+        pan: panVal,
+        city: cityVal,
+        state: stateVal,
+        previousGstin: prev,
+      }),
+    );
+  }
+
   function validate(s: Step): boolean {
     const e: Partial<Record<string, boolean>> = {};
     if (s === 1) {
@@ -78,6 +92,8 @@ export function ExpressionOfInterestForm() {
       const mob = mobile.replace(/\D/g, "");
       if (mob.length !== 10) e.mobile = true;
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = true;
+      if (!businessCity.trim()) e.city = true;
+      if (!businessState.trim()) e.state = true;
       if (!address.trim()) e.address = true;
       const itsDigits = itsNumber.replace(/\D/g, "");
       if (itsDigits.length > 0 && itsDigits.length !== ITS_DIGITS) e.itsNumber = true;
@@ -126,6 +142,8 @@ export function ExpressionOfInterestForm() {
       business_name: bizName.trim(),
       entity_type: entityType,
       year_established: parseInt(estYr, 10),
+      business_city: businessCity.trim(),
+      business_state: businessState.trim(),
       business_address: address.trim(),
       contact_person_name: cpName.trim(),
       contact_role: cpRole.trim() || null,
@@ -284,11 +302,7 @@ export function ExpressionOfInterestForm() {
                       className={fieldClass(!!errs.itsNumber)}
                       value={itsNumber}
                       onChange={(e) => setItsNumber(e.target.value.replace(/\D/g, "").slice(0, ITS_DIGITS))}
-                      placeholder="Optional — 8 digits for community members"
                     />
-                    <p className="mt-1 text-[11px] text-[#8a7a6e]">
-                      Optional. If you enter a value, it must be exactly {ITS_DIGITS} digits.
-                    </p>
                   </div>
                   <div>
                     <Label req>Mobile Number</Label>
@@ -308,14 +322,48 @@ export function ExpressionOfInterestForm() {
                       onChange={(e) => setEmail(e.target.value)}
                     />
                   </div>
+                </div>
+                <Divider label="Business location" />
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <Label req>City</Label>
+                    <input
+                      className={fieldClass(!!errs.city)}
+                      value={businessCity}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setBusinessCity(v);
+                        syncGstFromPanAndAddress(pan, v, businessState);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label req>State / UT</Label>
+                    <select
+                      className={fieldClass(!!errs.state)}
+                      value={businessState}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setBusinessState(v);
+                        syncGstFromPanAndAddress(pan, businessCity, v);
+                      }}
+                    >
+                      <option value="">— Select —</option>
+                      {GST_STATE_OPTIONS.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="sm:col-span-2">
-                    <Label req>Business Address</Label>
+                    <Label req>Street, building, locality</Label>
                     <textarea
                       rows={2}
                       className={fieldClass(!!errs.address)}
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
-                      placeholder="Full address with city, state and PIN code"
+                      placeholder="Building, street, area, PIN"
                     />
                   </div>
                 </div>
@@ -327,7 +375,11 @@ export function ExpressionOfInterestForm() {
                       className={fieldClass(!!errs.pan)}
                       value={pan}
                       maxLength={10}
-                      onChange={(e) => setPan(e.target.value.toUpperCase())}
+                      onChange={(e) => {
+                        const v = e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 10);
+                        setPan(v);
+                        syncGstFromPanAndAddress(v, businessCity, businessState);
+                      }}
                       placeholder="ABCDE1234F"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
@@ -338,8 +390,9 @@ export function ExpressionOfInterestForm() {
                       className={fieldClass(false)}
                       value={gstNum}
                       maxLength={15}
-                      onChange={(e) => setGstNum(e.target.value.toUpperCase())}
-                      placeholder="Leave blank if not registered"
+                      onChange={(e) =>
+                        setGstNum(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15))
+                      }
                     />
                   </div>
                   <div className="sm:col-span-2">
@@ -571,6 +624,11 @@ export function ExpressionOfInterestForm() {
                     <dt className="text-[#8a7a6e]">Contact</dt>
                     <dd className="font-medium">
                       {cpName} · {email}
+                    </dd>
+                    <dt className="text-[#8a7a6e]">Location</dt>
+                    <dd className="font-medium">
+                      {businessCity}
+                      {businessState ? `, ${businessState}` : ""}
                     </dd>
                     <dt className="text-[#8a7a6e]">PAN</dt>
                     <dd className="font-mono text-[13px] font-medium">{pan.toUpperCase().replace(/\s/g, "")}</dd>

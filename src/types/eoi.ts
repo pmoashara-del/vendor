@@ -15,6 +15,8 @@ export interface ExpressionOfInterestRow {
   business_name: string;
   entity_type: string;
   year_established: number;
+  business_city: string | null;
+  business_state: string | null;
   business_address: string;
   contact_person_name: string;
   contact_role: string | null;

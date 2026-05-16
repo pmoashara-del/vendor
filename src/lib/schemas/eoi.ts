@@ -6,6 +6,8 @@ export const eoiSubmitSchema = z.object({
   business_name: z.string().min(1).max(500),
   entity_type: z.string().min(1).max(200),
   year_established: z.coerce.number().int().min(1950).max(2030),
+  business_city: z.string().min(1).max(200),
+  business_state: z.string().min(1).max(200),
   business_address: z.string().min(1).max(4000),
 
   contact_person_name: z.string().min(1).max(200),

@@ -34,6 +34,8 @@ export async function POST(req: Request) {
     business_name: p.business_name,
     entity_type: p.entity_type,
     year_established: p.year_established,
+    business_city: p.business_city.trim(),
+    business_state: p.business_state.trim(),
     business_address: p.business_address,
     contact_person_name: p.contact_person_name,
     contact_role: p.contact_role ?? null,
