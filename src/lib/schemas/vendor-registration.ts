@@ -70,7 +70,6 @@ export const vendorRegistrationPayloadSchema = z
         const t = s.trim();
         if (!t) return null;
         try {
-          // eslint-disable-next-line no-new
           new URL(t);
           return t;
         } catch {

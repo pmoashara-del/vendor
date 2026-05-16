@@ -196,6 +196,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     }));
   }
 
+  /* eslint-disable react-hooks/set-state-in-effect -- IFSC field debounce: sync lookup state with code length/format */
   useEffect(() => {
     const code = f.ifsc_code.toUpperCase().replace(/\s/g, "");
 
@@ -254,6 +255,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
       ac.abort();
     };
   }, [f.ifsc_code]);
+
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

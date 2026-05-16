@@ -13,7 +13,11 @@ import {
   EOI_TURNOVER,
   EOI_ZONES,
 } from "@/lib/eoi/options";
-import { GST_STATE_OPTIONS, suggestGstinFromPanAndLocation } from "@/lib/eoi/indian-gst-state";
+import {
+  GST_STATE_OPTIONS,
+  suggestGstinFromPanAndLocation,
+  validateGSTIN,
+} from "@/lib/eoi/indian-gst-state";
 
 type Step = 1 | 2 | 3;
 
@@ -70,7 +74,8 @@ export function ExpressionOfInterestForm() {
     setZones((z) => ({ ...z, [k]: !z[k] }));
   }
 
-  function syncGstFromPanAndAddress(panVal: string, cityVal: string, stateVal: string) {
+  function syncGstIfRegistered(panVal: string, cityVal: string, stateVal: string) {
+    if (gstStatus !== "Registered") return;
     setGstNum((prev) =>
       suggestGstinFromPanAndLocation({
         pan: panVal,
@@ -99,6 +104,7 @@ export function ExpressionOfInterestForm() {
       if (itsDigits.length > 0 && itsDigits.length !== ITS_DIGITS) e.itsNumber = true;
       if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
       if (!gstStatus) e.gstStatus = true;
+      if (gstStatus === "Registered" && !validateGSTIN(gstNum)) e.gstNum = true;
     }
     if (s === 2) {
       if (!category) e.category = true;
@@ -158,7 +164,10 @@ export function ExpressionOfInterestForm() {
       capability_description: capability.trim(),
       previous_work: prevWork.trim() || null,
       pan_number: pan.toUpperCase().replace(/\s/g, ""),
-      gst_number: gstNum.trim() ? gstNum.toUpperCase().replace(/\s/g, "") : null,
+      gst_number:
+        gstStatus === "Registered" && gstNum.trim()
+          ? gstNum.toUpperCase().replace(/\s/g, "")
+          : null,
       gst_status: gstStatus,
       msme_status: msme || null,
       certifications: null,
@@ -333,7 +342,7 @@ export function ExpressionOfInterestForm() {
                       onChange={(e) => {
                         const v = e.target.value;
                         setBusinessCity(v);
-                        syncGstFromPanAndAddress(pan, v, businessState);
+                        syncGstIfRegistered(pan, v, businessState);
                       }}
                     />
                   </div>
@@ -345,7 +354,7 @@ export function ExpressionOfInterestForm() {
                       onChange={(e) => {
                         const v = e.target.value;
                         setBusinessState(v);
-                        syncGstFromPanAndAddress(pan, businessCity, v);
+                        syncGstIfRegistered(pan, businessCity, v);
                       }}
                     >
                       <option value="">— Select —</option>
@@ -369,7 +378,7 @@ export function ExpressionOfInterestForm() {
                 </div>
                 <Divider label="PAN, GST & MSME" />
                 <div className="grid gap-5 sm:grid-cols-2">
-                  <div>
+                  <div className="sm:col-span-2">
                     <Label req>PAN Number</Label>
                     <input
                       className={fieldClass(!!errs.pan)}
@@ -378,22 +387,11 @@ export function ExpressionOfInterestForm() {
                       onChange={(e) => {
                         const v = e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 10);
                         setPan(v);
-                        syncGstFromPanAndAddress(v, businessCity, businessState);
+                        syncGstIfRegistered(v, businessCity, businessState);
                       }}
                       placeholder="ABCDE1234F"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
-                  </div>
-                  <div>
-                    <Label>GST Registration Number</Label>
-                    <input
-                      className={fieldClass(false)}
-                      value={gstNum}
-                      maxLength={15}
-                      onChange={(e) =>
-                        setGstNum(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15))
-                      }
-                    />
                   </div>
                   <div className="sm:col-span-2">
                     <Label req>GST Status</Label>
@@ -405,7 +403,21 @@ export function ExpressionOfInterestForm() {
                             name="gst"
                             className="peer sr-only"
                             checked={gstStatus === g}
-                            onChange={() => setGstStatus(g)}
+                            onChange={() => {
+                              setGstStatus(g);
+                              if (g !== "Registered") {
+                                setGstNum("");
+                              } else {
+                                setGstNum((prev) =>
+                                  suggestGstinFromPanAndLocation({
+                                    pan,
+                                    city: businessCity,
+                                    state: businessState,
+                                    previousGstin: prev,
+                                  }),
+                                );
+                              }
+                            }}
                           />
                           <span className="block rounded-sm border border-[#e8ddd0] px-4 py-2 text-[13px] text-[#4a3f35] peer-checked:border-[#b8860b] peer-checked:bg-[#fff8ec] peer-checked:font-semibold peer-checked:text-[#b8860b]">
                             {g === "Registered"
@@ -421,6 +433,26 @@ export function ExpressionOfInterestForm() {
                     </div>
                     {errs.gstStatus ? <p className="mt-1 text-xs text-red-600">Select GST status</p> : null}
                   </div>
+                  {gstStatus === "Registered" ? (
+                    <div className="sm:col-span-2">
+                      <Label req>GST Registration Number</Label>
+                      <input
+                        className={fieldClass(!!errs.gstNum)}
+                        value={gstNum}
+                        maxLength={15}
+                        onChange={(e) =>
+                          setGstNum(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15))
+                        }
+                      />
+                      {errs.gstNum ? (
+                        <p className="mt-1 text-xs text-red-600">Enter a valid 15-character GSTIN</p>
+                      ) : (
+                        <p className="mt-1 text-[11px] text-[#8a7a6e]">
+                          Suggested from PAN and business location; you may edit if needed.
+                        </p>
+                      )}
+                    </div>
+                  ) : null}
                   <div className="sm:col-span-2">
                     <Label>MSME / Udyam Status</Label>
                     <div className="mt-2 flex flex-wrap gap-2">

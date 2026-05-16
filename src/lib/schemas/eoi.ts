@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { validateGSTIN } from "@/lib/eoi/indian-gst-state";
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
-export const eoiSubmitSchema = z.object({
+const eoiSubmitSchemaBase = z.object({
   business_name: z.string().min(1).max(500),
   entity_type: z.string().min(1).max(200),
   year_established: z.coerce.number().int().min(1950).max(2030),
@@ -46,7 +47,7 @@ export const eoiSubmitSchema = z.object({
       const t = String(v).toUpperCase().replace(/\s/g, "");
       return t === "" ? null : t;
     })
-    .refine((v) => v === null || (v.length === 15 && /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]$/.test(v)), {
+    .refine((v) => v === null || validateGSTIN(v), {
       message: "Invalid GSTIN or leave blank",
     }),
   gst_status: z.string().min(1).max(100),
@@ -55,6 +56,24 @@ export const eoiSubmitSchema = z.object({
   source: z.string().max(200).optional().nullable(),
 
   declaration_accepted: z.boolean().refine((v) => v === true, "You must accept the declaration"),
+});
+
+export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
+  if (data.gst_status === "Registered") {
+    if (data.gst_number == null || !validateGSTIN(data.gst_number)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Valid GSTIN is required when GST status is Registered",
+        path: ["gst_number"],
+      });
+    }
+  } else if (data.gst_number != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "GST number must be omitted unless GST status is Registered",
+      path: ["gst_number"],
+    });
+  }
 });
 
 export type EoiSubmitPayload = z.infer<typeof eoiSubmitSchema>;
