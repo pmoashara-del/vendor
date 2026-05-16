@@ -1,0 +1,58 @@
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap");
+@import "tailwindcss";
+
+.material-symbols-outlined {
+  font-family: "Material Symbols Outlined", sans-serif;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 24;
+  font-style: normal;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+:root {
+  --vp-background: #fcf9f8;
+  --vp-on-surface: #1c1b1b;
+  --vp-primary: #00261b;
+  --vp-on-primary: #ffffff;
+  --vp-secondary: #775a19;
+  --vp-on-secondary: #ffffff;
+  --vp-secondary-fixed: #ffdea5;
+  --vp-secondary-container: #fed488;
+  --vp-primary-container: #0b3d2e;
+  --vp-on-primary-container: #79a894;
+  --vp-surface: #fcf9f8;
+  --vp-surface-variant: #e5e2e1;
+  --vp-outline: #717974;
+}
+
+@theme inline {
+  --color-vp-background: var(--vp-background);
+  --color-vp-on-surface: var(--vp-on-surface);
+  --color-vp-primary: var(--vp-primary);
+  --color-vp-on-primary: var(--vp-on-primary);
+  --color-vp-secondary: var(--vp-secondary);
+  --color-vp-on-secondary: var(--vp-on-secondary);
+  --color-vp-secondary-fixed: var(--vp-secondary-fixed);
+  --color-vp-secondary-container: var(--vp-secondary-container);
+  --color-vp-primary-container: var(--vp-primary-container);
+  --color-vp-on-primary-container: var(--vp-on-primary-container);
+  --color-vp-surface: var(--vp-surface);
+  --color-vp-surface-variant: var(--vp-surface-variant);
+  --color-vp-outline: var(--vp-outline);
+  --spacing-vp-margin-mobile: 16px;
+  --spacing-vp-margin-desktop: 40px;
+  --spacing-vp-gutter: 24px;
+  --spacing-vp-container-max: 1280px;
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-eb-garamond), ui-serif, Georgia, "Times New Roman", serif;
+}
+
+body {
+  background: var(--vp-background);
+  color: var(--vp-on-surface);
+}
