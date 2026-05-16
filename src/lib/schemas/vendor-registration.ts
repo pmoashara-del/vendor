@@ -1,4 +1,5 @@
- import { z } from "zod";
+import { z } from "zod";
+import { gstinBelongsToPAN, validateGSTIN, validatePAN } from "@/lib/india-tax-ids";
 
 const emptyToNull = (v: unknown) => (v === "" || v === undefined ? null : v);
 
@@ -11,7 +12,6 @@ function parseMoneyInput(v: unknown): number | null | undefined {
   return n;
 }
 
-const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const itsRegex = /^\d{8}$/;
 const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const pinRegex = /^\d{6}$/;
@@ -81,11 +81,15 @@ export const vendorRegistrationPayloadSchema = z
     pan_number: z
       .string()
       .transform((s) => s.toUpperCase().replace(/\s/g, ""))
-      .refine((s) => panRegex.test(s), "Invalid PAN format"),
+      .refine((s) => validatePAN(s), "Invalid PAN format"),
     gst_registered: z.boolean(),
     gstin: z.preprocess(
       (v) => (v === "" || v === undefined ? null : String(v).toUpperCase().replace(/\s/g, "")),
-      z.string().length(15).nullable(),
+      z
+        .string()
+        .length(15)
+        .nullable()
+        .refine((s) => s === null || validateGSTIN(s), "Invalid GSTIN format"),
     ),
     msme_registered: z.boolean(),
     msme_udyam_number: z.preprocess(emptyToNull, z.string().max(100).nullable()),
@@ -156,6 +160,19 @@ export const vendorRegistrationPayloadSchema = z
         code: z.ZodIssueCode.custom,
         path: ["gstin"],
         message: "Enter full 15-character GSTIN when GST registered",
+      });
+    }
+    if (
+      data.gst_registered &&
+      data.gstin &&
+      validateGSTIN(data.gstin) &&
+      validatePAN(data.pan_number) &&
+      !gstinBelongsToPAN(data.gstin, data.pan_number)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["gstin"],
+        message: "GSTIN must match the PAN you entered",
       });
     }
     if (!data.gst_registered && data.doc_gst_certificate) {

@@ -28,6 +28,7 @@ export interface ExpressionOfInterestRow {
   capability_description: string;
   previous_work: string | null;
   pan_number: string;
+  its_number: string | null;
   gst_number: string | null;
   gst_status: string;
   msme_status: string | null;
