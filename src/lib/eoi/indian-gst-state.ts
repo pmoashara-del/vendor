@@ -132,10 +132,15 @@ export function resolveGstStateCode(stateName: string, cityName: string): number
   return null;
 }
 
-/** Provisional GSTIN (checksum digit is a placeholder — replace for production if required). */
-export function buildGSTIN(pan: string, stateCode: number, entityNo: number | string = 1): string {
+/** First 12 characters of GSTIN: state code (2) + PAN (10). Last 3 must be supplied separately. */
+export function buildGstinPrefix(pan: string, stateCode: number): string {
   const state = String(stateCode).padStart(2, "0");
-  return `${state}${pan.toUpperCase().replace(/\s/g, "")}${entityNo}Z5`;
+  return `${state}${pan.toUpperCase().replace(/\s/g, "")}`;
+}
+
+/** Full 15-char provisional GSTIN (legacy helper; prefer buildGstinPrefix + manual suffix in UI). */
+export function buildGSTIN(pan: string, stateCode: number, entityNo: number | string = 1): string {
+  return `${buildGstinPrefix(pan, stateCode)}${entityNo}Z5`;
 }
 
 export function suggestGstinFromPanAndLocation(opts: {
@@ -148,9 +153,11 @@ export function suggestGstinFromPanAndLocation(opts: {
   if (!validatePAN(panNorm)) return opts.previousGstin;
   const code = resolveGstStateCode(opts.state, opts.city);
   if (code == null) return opts.previousGstin;
-  const built = buildGSTIN(panNorm, code, 1);
+  const prefix = buildGstinPrefix(panNorm, code);
   const g = opts.previousGstin.trim().toUpperCase();
-  if (!g) return built;
   if (validateGSTIN(g) && !gstinBelongsToPAN(g, panNorm)) return opts.previousGstin;
-  return built;
+  if (g.length > 12 && g.startsWith(prefix)) {
+    return (prefix + g.slice(12, 15)).slice(0, 15);
+  }
+  return prefix;
 }

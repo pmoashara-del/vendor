@@ -445,10 +445,15 @@ export function ExpressionOfInterestForm() {
                         }
                       />
                       {errs.gstNum ? (
-                        <p className="mt-1 text-xs text-red-600">Enter a valid 15-character GSTIN</p>
+                        <p className="mt-1 text-xs text-red-600">
+                          {gstNum.replace(/\s/g, "").length < 15
+                            ? "Enter the last three characters of your GSTIN; they are not auto-filled and are required."
+                            : "Enter a valid 15-character GSTIN"}
+                        </p>
                       ) : (
                         <p className="mt-1 text-[11px] text-[#8a7a6e]">
-                          Suggested from PAN and business location; you may edit if needed.
+                          First 12 characters are filled from state and PAN. You must enter the final three
+                          characters yourself (they are required to submit).
                         </p>
                       )}
                     </div>
