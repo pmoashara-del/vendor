@@ -109,7 +109,7 @@ $$ language plpgsql;
 drop trigger if exists vendor_registration_set_updated_at on public.vendor_registration;
 create trigger vendor_registration_set_updated_at
   before update on public.vendor_registration
-  for each row execute procedure public.set_vendor_registration_updated_at();
+  for each row execute function public.set_vendor_registration_updated_at();
 
 alter table public.vendor_registration enable row level security;
 

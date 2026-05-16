@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { eoiSubmitSchema } from "@/lib/schemas/eoi";
 import { sendEoiSubmittedEmail } from "@/lib/email/resend-notifications";
-import { createServerAnonSupabase } from "@/lib/supabase/server-anon";
+import { createServiceSupabase } from "@/lib/supabase/service";
 import { randomBytes } from "crypto";
 
 function generateReference(): string {
@@ -56,7 +56,9 @@ export async function POST(req: Request) {
   };
 
   try {
-    const supabase = createServerAnonSupabase();
+    // Service role: insert + .select() must bypass RLS. Anon only has INSERT policy; returning rows
+    // requires SELECT, which RLS blocks for anon — PostgREST then fails the whole request.
+    const supabase = createServiceSupabase();
     for (let attempt = 0; attempt < 5; attempt++) {
       const ref = generateReference();
       const { data, error } = await supabase
@@ -80,7 +82,10 @@ export async function POST(req: Request) {
       if (error?.code !== "23505") {
         console.error("EOI insert error:", error);
         return NextResponse.json(
-          { error: "Could not save EOI. Check Supabase migration and RLS." },
+          {
+            error: "Could not save EOI. Check Supabase migration, RLS, and SUPABASE_SERVICE_ROLE_KEY on the server.",
+            details: { code: error?.code, message: error?.message },
+          },
           { status: 500 },
         );
       }

@@ -71,7 +71,7 @@ $$ language plpgsql;
 drop trigger if exists expression_of_interest_set_updated_at on public.expression_of_interest;
 create trigger expression_of_interest_set_updated_at
   before update on public.expression_of_interest
-  for each row execute procedure public.set_expression_of_interest_updated_at();
+  for each row execute function public.set_expression_of_interest_updated_at();
 
 alter table public.expression_of_interest enable row level security;
 
