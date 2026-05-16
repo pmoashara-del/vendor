@@ -31,6 +31,7 @@ const eoiSubmitSchemaBase = z.object({
   primary_category: z.string().min(1).max(500),
   departments_served: z.array(z.string().max(100)).default([]),
   zones: z.array(z.string().max(100)).min(1, "Select at least one zone"),
+  can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
   experience_years: z.string().min(1).max(100),
   turnover_range: z.string().max(200).optional().nullable(),
   capability_description: z.string().min(1).max(500),

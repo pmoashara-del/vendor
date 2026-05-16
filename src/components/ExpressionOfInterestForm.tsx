@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import {
+  EOI_CAN_WORK_IN_LOCATION,
+  EOI_CAN_WORK_IN_LOCATION_LABELS,
   EOI_CATEGORY_GROUPS,
   EOI_DEPARTMENT_LABELS,
   EOI_DEPARTMENTS,
@@ -13,6 +15,7 @@ import {
   EOI_TURNOVER,
   EOI_ZONES,
 } from "@/lib/eoi/options";
+import type { EoiCanWorkInLocation } from "@/lib/eoi/options";
 import {
   GST_STATE_OPTIONS,
   suggestGstinFromPanAndLocation,
@@ -52,6 +55,7 @@ export function ExpressionOfInterestForm() {
   const [category, setCategory] = useState("");
   const [depts, setDepts] = useState<Record<string, boolean>>({});
   const [zones, setZones] = useState<Record<string, boolean>>({});
+  const [canWorkLocation, setCanWorkLocation] = useState<EoiCanWorkInLocation | "">("");
   const [expYrs, setExpYrs] = useState("");
   const [turnover, setTurnover] = useState("");
   const [capability, setCapability] = useState("");
@@ -64,6 +68,7 @@ export function ExpressionOfInterestForm() {
   const [source, setSource] = useState("");
 
   const [declare, setDeclare] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const [errs, setErrs] = useState<Partial<Record<string, boolean>>>({});
 
@@ -109,6 +114,7 @@ export function ExpressionOfInterestForm() {
     if (s === 2) {
       if (!category) e.category = true;
       if (!EOI_ZONES.some((z) => zones[z])) e.zones = true;
+      if (!canWorkLocation) e.canWorkLocation = true;
       if (!expYrs) e.expYrs = true;
       if (!capability.trim()) e.capability = true;
     }
@@ -159,6 +165,7 @@ export function ExpressionOfInterestForm() {
       primary_category: category,
       departments_served,
       zones: zonesArr,
+      can_work_in_programme_location: canWorkLocation as EoiCanWorkInLocation,
       experience_years: expYrs,
       turnover_range: turnover || null,
       capability_description: capability.trim(),
@@ -199,6 +206,41 @@ export function ExpressionOfInterestForm() {
     }
   }
 
+  async function copyReferenceNumber() {
+    if (!ref) return;
+    try {
+      await navigator.clipboard.writeText(ref);
+      setCopyFeedback("Copied to clipboard.");
+      window.setTimeout(() => setCopyFeedback(null), 2500);
+    } catch {
+      setCopyFeedback("Copy was blocked — select the reference text above to copy it manually.");
+      window.setTimeout(() => setCopyFeedback(null), 4000);
+    }
+  }
+
+  function downloadReferenceFile() {
+    if (!ref) return;
+    const text = [
+      "Expression of Interest — reference number",
+      "",
+      ref,
+      "",
+      `Saved: ${new Date().toLocaleString()}`,
+      "",
+      "Keep this reference for correspondence with the organisers.",
+    ].join("\n");
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `EOI-reference-${ref.replace(/[^A-Za-z0-9-]+/g, "_")}.txt`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   if (done) {
     return (
       <div className="mx-auto max-w-lg rounded-sm border border-[#e8ddd0] bg-[#fff9f0] px-8 py-16 text-center shadow-lg">
@@ -209,8 +251,27 @@ export function ExpressionOfInterestForm() {
           and next steps.
         </p>
         {ref ? (
-          <div className="mt-6 inline-block rounded-sm border border-[#9dcc99] bg-[#eaf4e9] px-5 py-2 font-[family-name:var(--font-cormorant)] text-lg font-semibold text-[#2d5a27]">
-            {ref}
+          <div className="mt-6 space-y-4">
+            <div className="inline-block max-w-full rounded-sm border border-[#9dcc99] bg-[#eaf4e9] px-5 py-3 font-[family-name:var(--font-cormorant)] text-lg font-semibold tracking-wide text-[#2d5a27]">
+              <span className="select-all break-all">{ref}</span>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => void copyReferenceNumber()}
+                className="rounded-sm border border-[#2d5a27] bg-white px-4 py-2 text-[13px] font-semibold text-[#2d5a27] shadow-sm transition hover:bg-[#eaf4e9]"
+              >
+                Copy reference
+              </button>
+              <button
+                type="button"
+                onClick={downloadReferenceFile}
+                className="rounded-sm bg-[#2d5a27] px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#234620]"
+              >
+                Download as .txt
+              </button>
+            </div>
+            {copyFeedback ? <p className="text-center text-xs text-[#4a3f35]">{copyFeedback}</p> : null}
           </div>
         ) : null}
         <p className="mt-6 text-xs text-[#8a7a6e]">Save your reference number for future correspondence.</p>
@@ -537,24 +598,49 @@ export function ExpressionOfInterestForm() {
                     ))}
                   </div>
                 </div>
-                <Divider label="Geographic Coverage" />
-                <div>
-                  <Label req>Cities / areas you can operate in</Label>
-                  <p className="mb-2 text-[12px] text-[#8a7a6e]">Select all that apply for this programme.</p>
+                <Divider label="Programme location" />
+                <div className="sm:col-span-2">
+                  <Label req>Can you take on work based in Indore / Madhya Pradesh for this programme?</Label>
+                  <p className="mb-2 text-[12px] text-[#8a7a6e]">
+                    This refers to assignments in this geography, not only where your business is registered.
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {EOI_CAN_WORK_IN_LOCATION.map((v) => (
+                      <label key={v} className="cursor-pointer">
+                        <input
+                          type="radio"
+                          name="canWorkLocation"
+                          className="peer sr-only"
+                          checked={canWorkLocation === v}
+                          onChange={() => setCanWorkLocation(v)}
+                        />
+                        <span className="block max-w-xl rounded-sm border border-[#e8ddd0] px-4 py-2 text-left text-[13px] text-[#4a3f35] peer-checked:border-[#b8860b] peer-checked:bg-[#fff8ec] peer-checked:font-semibold peer-checked:text-[#b8860b]">
+                          {EOI_CAN_WORK_IN_LOCATION_LABELS[v]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {errs.canWorkLocation ? (
+                    <p className="mt-1 text-xs text-red-600">Select one option</p>
+                  ) : null}
+                </div>
+                <div>
+                  <Label req>Programme area you can operate in</Label>
+                  <p className="mb-2 text-[12px] text-[#8a7a6e]">Single combined area for this EOI.</p>
+                  <div className="mt-2">
                     {EOI_ZONES.map((z) => (
-                      <label key={z} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
+                      <label key={z} className="flex cursor-pointer items-start gap-2 text-[13px] text-[#4a3f35]">
                         <input
                           type="checkbox"
                           checked={!!zones[z]}
                           onChange={() => toggleZone(z)}
-                          className="accent-[#b8860b]"
+                          className="mt-0.5 accent-[#b8860b]"
                         />
-                        {z}
+                        <span>{z}</span>
                       </label>
                     ))}
                   </div>
-                  {errs.zones ? <p className="mt-1 text-xs text-red-600">Select at least one option</p> : null}
+                  {errs.zones ? <p className="mt-1 text-xs text-red-600">Confirm programme coverage</p> : null}
                 </div>
                 <Divider label="Experience & Scale" />
                 <div className="grid gap-5 sm:grid-cols-2">
@@ -671,6 +757,14 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-mono text-[13px] font-medium">{pan.toUpperCase().replace(/\s/g, "")}</dd>
                     <dt className="text-[#8a7a6e]">GST status</dt>
                     <dd className="font-medium">{gstStatus || "—"}</dd>
+                    <dt className="text-[#8a7a6e]">Work in programme area</dt>
+                    <dd className="font-medium">
+                      {canWorkLocation ? EOI_CAN_WORK_IN_LOCATION_LABELS[canWorkLocation] : "—"}
+                    </dd>
+                    <dt className="text-[#8a7a6e]">Programme coverage</dt>
+                    <dd className="font-medium">
+                      {EOI_ZONES.filter((z) => zones[z]).join(", ") || "—"}
+                    </dd>
                     {itsNumber.replace(/\D/g, "").length === ITS_DIGITS ? (
                       <>
                         <dt className="text-[#8a7a6e]">ITS number</dt>

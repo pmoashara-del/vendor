@@ -45,6 +45,7 @@ export async function POST(req: Request) {
     primary_category: p.primary_category,
     departments_served: p.departments_served,
     zones: p.zones,
+    can_work_in_programme_location: p.can_work_in_programme_location,
     experience_years: p.experience_years,
     turnover_range: p.turnover_range ?? null,
     capability_description: p.capability_description,
