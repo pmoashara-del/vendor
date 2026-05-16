@@ -18,6 +18,7 @@ export interface ExpressionOfInterestRow {
   business_address: string;
   contact_person_name: string;
   contact_role: string | null;
+  its_number: string | null;
   mobile: string;
   email: string;
   primary_category: string;

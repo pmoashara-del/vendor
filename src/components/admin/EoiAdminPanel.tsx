@@ -25,13 +25,15 @@ export function EoiAdminPanel({
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
+    const qDigits = filter.replace(/\D/g, "");
     if (!q) return submissions;
     return submissions.filter(
       (s) =>
         s.business_name.toLowerCase().includes(q) ||
         s.primary_category.toLowerCase().includes(q) ||
         s.email.toLowerCase().includes(q) ||
-        s.reference_number.toLowerCase().includes(q),
+        s.reference_number.toLowerCase().includes(q) ||
+        (qDigits.length > 0 && !!s.its_number?.includes(qDigits)),
     );
   }, [submissions, filter]);
 
@@ -83,7 +85,7 @@ export function EoiAdminPanel({
         </div>
         <input
           type="search"
-          placeholder="Filter by name, category, email, ref…"
+          placeholder="Filter by name, category, email, ref, ITS…"
           className="w-full max-w-xs rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm dark:border-amber-800 dark:bg-zinc-950"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
@@ -100,6 +102,7 @@ export function EoiAdminPanel({
               <th className="px-2 py-2">Business</th>
               <th className="px-2 py-2">Category</th>
               <th className="px-2 py-2">Email</th>
+              <th className="px-2 py-2">ITS</th>
               <th className="px-2 py-2">Status</th>
               <th className="px-2 py-2">Actions</th>
             </tr>
@@ -114,6 +117,7 @@ export function EoiAdminPanel({
                 <td className="max-w-[180px] truncate px-2 py-2 font-medium">{s.business_name}</td>
                 <td className="max-w-[160px] truncate px-2 py-2 text-xs">{s.primary_category}</td>
                 <td className="max-w-[180px] truncate px-2 py-2 text-xs">{s.email}</td>
+                <td className="whitespace-nowrap px-2 py-2 font-mono text-xs tabular-nums">{s.its_number ?? "—"}</td>
                 <td className="px-2 py-2">
                   <select
                     className="max-w-[11rem] rounded border border-zinc-300 bg-white px-1 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"

@@ -16,6 +16,7 @@ import {
 
 type Step = 1 | 2 | 3;
 
+const ITS_DIGITS = 8;
 const panRe = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 function fieldClass(err: boolean) {
@@ -37,6 +38,7 @@ export function ExpressionOfInterestForm() {
   const [address, setAddress] = useState("");
   const [cpName, setCpName] = useState("");
   const [cpRole, setCpRole] = useState("");
+  const [itsNumber, setItsNumber] = useState("");
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
 
@@ -77,6 +79,8 @@ export function ExpressionOfInterestForm() {
       if (mob.length !== 10) e.mobile = true;
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) e.email = true;
       if (!address.trim()) e.address = true;
+      const itsDigits = itsNumber.replace(/\D/g, "");
+      if (itsDigits.length > 0 && itsDigits.length !== ITS_DIGITS) e.itsNumber = true;
       if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
       if (!gstStatus) e.gstStatus = true;
     }
@@ -117,6 +121,7 @@ export function ExpressionOfInterestForm() {
     setFormErr(null);
     const departments_served = EOI_DEPARTMENTS.filter((d) => depts[d]).map(String);
     const zonesArr = EOI_ZONES.filter((z) => zones[z]).map(String);
+    const itsDigits = itsNumber.replace(/\D/g, "");
     const body = {
       business_name: bizName.trim(),
       entity_type: entityType,
@@ -124,6 +129,7 @@ export function ExpressionOfInterestForm() {
       business_address: address.trim(),
       contact_person_name: cpName.trim(),
       contact_role: cpRole.trim() || null,
+      its_number: itsDigits.length === ITS_DIGITS ? itsDigits : null,
       mobile: mobile.replace(/\D/g, ""),
       email: email.trim(),
       primary_category: category,
@@ -267,6 +273,22 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label>Designation / Role</Label>
                     <input className={fieldClass(false)} value={cpRole} onChange={(e) => setCpRole(e.target.value)} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>ITS number</Label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={ITS_DIGITS}
+                      className={fieldClass(!!errs.itsNumber)}
+                      value={itsNumber}
+                      onChange={(e) => setItsNumber(e.target.value.replace(/\D/g, "").slice(0, ITS_DIGITS))}
+                      placeholder="Optional — 8 digits for community members"
+                    />
+                    <p className="mt-1 text-[11px] text-[#8a7a6e]">
+                      Optional. If you enter a value, it must be exactly {ITS_DIGITS} digits.
+                    </p>
                   </div>
                   <div>
                     <Label req>Mobile Number</Label>
@@ -554,6 +576,14 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-mono text-[13px] font-medium">{pan.toUpperCase().replace(/\s/g, "")}</dd>
                     <dt className="text-[#8a7a6e]">GST status</dt>
                     <dd className="font-medium">{gstStatus || "—"}</dd>
+                    {itsNumber.replace(/\D/g, "").length === ITS_DIGITS ? (
+                      <>
+                        <dt className="text-[#8a7a6e]">ITS number</dt>
+                        <dd className="font-mono text-[13px] font-medium tabular-nums">
+                          {itsNumber.replace(/\D/g, "")}
+                        </dd>
+                      </>
+                    ) : null}
                   </dl>
                 </div>
                 <div className="mb-5 rounded-sm border border-[#e8ddd0] bg-[#f5f0e8] p-5 text-[13px] leading-relaxed text-[#4a3f35]">

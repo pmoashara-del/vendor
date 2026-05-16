@@ -10,6 +10,15 @@ export const eoiSubmitSchema = z.object({
 
   contact_person_name: z.string().min(1).max(200),
   contact_role: z.string().max(200).optional().nullable(),
+  its_number: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v == null || v === "") return null;
+      return String(v).replace(/\D/g, "");
+    })
+    .refine((s): s is string | null => s === null || /^\d{8}$/.test(s), {
+      message: "ITS number must be exactly 8 digits or left blank",
+    }),
   mobile: z
     .string()
     .transform((s) => s.replace(/\D/g, ""))

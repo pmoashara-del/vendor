@@ -37,6 +37,7 @@ export async function POST(req: Request) {
     business_address: p.business_address,
     contact_person_name: p.contact_person_name,
     contact_role: p.contact_role ?? null,
+    its_number: p.its_number,
     mobile: mobileDigits,
     email: p.email.trim().toLowerCase(),
     primary_category: p.primary_category,
