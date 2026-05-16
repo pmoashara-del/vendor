@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import {
+  buildGSTIN,
+  gstinBelongsToPAN,
+  validatePAN,
+} from "@/lib/india-pan-gstin";
 import {
   EOI_CATEGORY_GROUPS,
   EOI_DEPARTMENT_LABELS,
@@ -15,8 +20,6 @@ import {
 } from "@/lib/eoi/options";
 
 type Step = 1 | 2 | 3 | 4;
-
-const panRe = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 function fieldClass(err: boolean) {
   return `w-full rounded-sm border bg-white px-3.5 py-2.5 text-sm text-[#1a1410] outline-none transition focus:border-[#d4a843] focus:ring-[3px] focus:ring-[rgba(184,134,11,0.1)] ${
@@ -50,6 +53,8 @@ export function ExpressionOfInterestForm() {
 
   const [pan, setPan] = useState("");
   const [gstNum, setGstNum] = useState("");
+  const gstNumUserEdited = useRef(false);
+  const [itsNumber, setItsNumber] = useState("");
   const [gstStatus, setGstStatus] = useState("");
   const [msme, setMsme] = useState("");
   const [certs, setCerts] = useState("");
@@ -58,6 +63,8 @@ export function ExpressionOfInterestForm() {
   const [declare, setDeclare] = useState(false);
 
   const [errs, setErrs] = useState<Partial<Record<string, boolean>>>({});
+
+  const DEFAULT_EOI_GST_STATE = 23;
 
   function toggleDept(k: string) {
     setDepts((d) => ({ ...d, [k]: !d[k] }));
@@ -86,7 +93,9 @@ export function ExpressionOfInterestForm() {
       if (!capability.trim()) e.capability = true;
     }
     if (s === 3) {
-      if (!panRe.test(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
+      if (!validatePAN(pan.toUpperCase().replace(/\s/g, ""))) e.pan = true;
+      const itsDigits = itsNumber.replace(/\D/g, "");
+      if (itsDigits.length > 0 && itsDigits.length !== 8) e.its = true;
       if (!gstStatus) e.gstStatus = true;
     }
     setErrs(e);
@@ -132,6 +141,10 @@ export function ExpressionOfInterestForm() {
       turnover_range: turnover || null,
       capability_description: capability.trim(),
       previous_work: prevWork.trim() || null,
+      its_number: (() => {
+        const d = itsNumber.replace(/\D/g, "");
+        return d.length === 8 ? d : null;
+      })(),
       pan_number: pan.toUpperCase().replace(/\s/g, ""),
       gst_number: gstNum.trim() ? gstNum.toUpperCase().replace(/\s/g, "") : null,
       gst_status: gstStatus,
@@ -456,14 +469,48 @@ export function ExpressionOfInterestForm() {
               <>
                 <Notice text="This information is used for preliminary verification only. Full documentation (PAN card, GST certificate, etc.) will be requested at the time of formal empanelment." />
                 <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Label>ITS number (optional)</Label>
+                    <input
+                      className={fieldClass(!!errs.its)}
+                      value={itsNumber}
+                      inputMode="numeric"
+                      maxLength={8}
+                      autoComplete="off"
+                      onChange={(e) => setItsNumber(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                      placeholder="8 digits if applicable"
+                    />
+                    <p className="mt-1 text-[11px] text-[#8a7a6e]">
+                      For community members only. Leave blank if not applicable. If you enter a value, it must be
+                      exactly 8 digits.
+                    </p>
+                    {errs.its ? <p className="mt-1 text-xs text-red-600">ITS must be exactly 8 digits or left blank</p> : null}
+                  </div>
                   <div>
                     <Label req>PAN Number</Label>
                     <input
                       className={fieldClass(!!errs.pan)}
                       value={pan}
                       maxLength={10}
-                      onChange={(e) => setPan(e.target.value.toUpperCase())}
-                      placeholder="ABCDE1234F"
+                      onChange={(e) => {
+                        const nextPan = e.target.value.toUpperCase();
+                        setPan(nextPan);
+                        if (gstNumUserEdited.current) return;
+                        const p = nextPan.replace(/\s/g, "");
+                        if (!validatePAN(p)) return;
+                        setGstNum((g) => {
+                          const cur = g.toUpperCase().replace(/\s/g, "");
+                          if (cur.length === 15 && !gstinBelongsToPAN(cur, p)) return cur;
+                          let entity = 1;
+                          if (cur.length === 15 && gstinBelongsToPAN(cur, p)) {
+                            const d = parseInt(cur[12], 10);
+                            if (d >= 1 && d <= 9) entity = d;
+                          }
+                          const next = buildGSTIN(p, DEFAULT_EOI_GST_STATE, entity);
+                          return next === cur ? cur : next;
+                        });
+                      }}
+                      placeholder="e.g. AAAPL1234C"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
                   </div>
@@ -473,9 +520,16 @@ export function ExpressionOfInterestForm() {
                       className={fieldClass(false)}
                       value={gstNum}
                       maxLength={15}
-                      onChange={(e) => setGstNum(e.target.value.toUpperCase())}
+                      onChange={(e) => {
+                        gstNumUserEdited.current = true;
+                        setGstNum(e.target.value.toUpperCase());
+                      }}
                       placeholder="Leave blank if not registered"
                     />
+                    <p className="mt-1 text-[11px] text-[#8a7a6e]">
+                      When your PAN is complete and valid, a suggested GSTIN is filled using state code {DEFAULT_EOI_GST_STATE}{" "}
+                      (Madhya Pradesh). Edit if your registration uses another state.
+                    </p>
                   </div>
                   <div className="sm:col-span-2">
                     <Label req>GST Status</Label>

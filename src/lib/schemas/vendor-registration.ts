@@ -1,4 +1,5 @@
- import { z } from "zod";
+import { z } from "zod";
+import { validateGSTIN, validatePAN } from "@/lib/india-pan-gstin";
 
 const emptyToNull = (v: unknown) => (v === "" || v === undefined ? null : v);
 
@@ -11,7 +12,6 @@ function parseMoneyInput(v: unknown): number | null | undefined {
   return n;
 }
 
-const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 const itsRegex = /^\d{8}$/;
 const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const pinRegex = /^\d{6}$/;
@@ -70,7 +70,6 @@ export const vendorRegistrationPayloadSchema = z
         const t = s.trim();
         if (!t) return null;
         try {
-          // eslint-disable-next-line no-new
           new URL(t);
           return t;
         } catch {
@@ -81,7 +80,7 @@ export const vendorRegistrationPayloadSchema = z
     pan_number: z
       .string()
       .transform((s) => s.toUpperCase().replace(/\s/g, ""))
-      .refine((s) => panRegex.test(s), "Invalid PAN format"),
+      .refine((s) => validatePAN(s), "Invalid PAN format"),
     gst_registered: z.boolean(),
     gstin: z.preprocess(
       (v) => (v === "" || v === undefined ? null : String(v).toUpperCase().replace(/\s/g, "")),
@@ -151,12 +150,14 @@ export const vendorRegistrationPayloadSchema = z
     declaration_place: z.string().min(1).max(200),
   })
   .superRefine((data, ctx) => {
-    if (data.gst_registered && (!data.gstin || data.gstin.length !== 15)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["gstin"],
-        message: "Enter full 15-character GSTIN when GST registered",
-      });
+    if (data.gst_registered) {
+      if (!data.gstin || data.gstin.length !== 15 || !validateGSTIN(data.gstin)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["gstin"],
+          message: "Enter a valid 15-character GSTIN when GST registered",
+        });
+      }
     }
     if (!data.gst_registered && data.doc_gst_certificate) {
       ctx.addIssue({
