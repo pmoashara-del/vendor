@@ -109,12 +109,28 @@ export function CategorySelectionsPicker({
             <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-[#8a7a6e]">
               Your selections ({summary.length})
             </p>
-            <ul className="max-h-40 space-y-1 overflow-y-auto leading-snug">
-              {summary.map((row, i) => (
-                <li key={`${row.main}\u0000${row.sub}\u0000${i}`}>
-                  <span className="font-medium text-[#4a3f35]">{row.main}</span>
-                  <span className="text-[#8a7a6e]"> — </span>
-                  <span>{row.sub}</span>
+            <ul className="max-h-40 space-y-1.5 overflow-y-auto leading-snug">
+              {summary.map((row) => (
+                <li
+                  key={`${row.main}\u0000${row.sub}`}
+                  className="flex items-start justify-between gap-2 rounded-sm bg-white/60 py-1 pl-1 pr-0.5"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium text-[#4a3f35]">{row.main}</span>
+                    <span className="text-[#8a7a6e]"> — </span>
+                    <span>{row.sub}</span>
+                  </span>
+                  <button
+                    type="button"
+                    title="Remove this selection"
+                    className="shrink-0 rounded-sm border border-transparent px-2 py-0.5 text-[15px] font-light leading-none text-[#8a7a6e] transition hover:border-[#e8ddd0] hover:bg-[#fff9f0] hover:text-[#7c3a1e]"
+                    aria-label={`Remove ${row.main}, ${row.sub}`}
+                    onClick={() =>
+                      onChange(value.filter((x) => !(x.main === row.main && x.sub === row.sub)))
+                    }
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
                 </li>
               ))}
             </ul>
