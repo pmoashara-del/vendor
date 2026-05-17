@@ -112,7 +112,9 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    void loadData();
+    queueMicrotask(() => {
+      void loadData();
+    });
   }, [loadData]);
 
   async function login(e: React.FormEvent) {

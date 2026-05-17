@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
 import { ItsNumberGate } from "@/components/ItsNumberGate";
+import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
 import {
   buildGSTIN,
   DEFAULT_GST_STATE_CODE,
@@ -44,13 +46,12 @@ interface FormState {
   account_number: string;
   ifsc_code: string;
   account_type: string;
-  main_category: string;
-  sub_category: string;
+  category_selections: CategorySelection[];
   products_services_offered: string;
-  service_location_other: boolean;
   service_location_pan_india: boolean;
   service_location_madhya_pradesh: boolean;
   service_location_indore: boolean;
+  additional_service_locations: string;
   turnover_fy_2023_24: string;
   turnover_fy_2024_25: string;
   turnover_fy_2025_26: string;
@@ -104,13 +105,12 @@ const initial: FormState = {
   account_number: "",
   ifsc_code: "",
   account_type: "",
-  main_category: "",
-  sub_category: "",
+  category_selections: [],
   products_services_offered: "",
-  service_location_other: false,
   service_location_pan_india: false,
-  service_location_madhya_pradesh: false,
-  service_location_indore: false,
+  service_location_madhya_pradesh: true,
+  service_location_indore: true,
+  additional_service_locations: "",
   turnover_fy_2023_24: "",
   turnover_fy_2024_25: "",
   turnover_fy_2025_26: "",
@@ -168,6 +168,7 @@ function SectionTitle({ n, title }: { n: number; title: string }) {
 
 export function VendorRegistrationForm({ invitationToken }: { invitationToken: string }) {
   const [f, setF] = useState<FormState>(initial);
+  const [categoryPickerError, setCategoryPickerError] = useState(false);
   const [formUnlocked, setFormUnlocked] = useState(false);
   const [itsNumber, setItsNumber] = useState("");
   const [itsError, setItsError] = useState<string | null>(null);
@@ -208,14 +209,21 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     }));
   }
 
-  function onMp(v: boolean) {
+  function setProgrammeIndore(checked: boolean) {
     setF((p) => ({
       ...p,
-      service_location_madhya_pradesh: v,
-      service_location_indore: v ? true : p.service_location_indore,
+      service_location_indore: p.service_location_pan_india ? true : checked,
     }));
   }
 
+  function setProgrammeMadhyaPradesh(checked: boolean) {
+    setF((p) => ({
+      ...p,
+      service_location_madhya_pradesh: p.service_location_pan_india ? true : checked,
+    }));
+  }
+
+  /* eslint-disable react-hooks/set-state-in-effect -- IFSC field debounce: sync lookup state with code length/format */
   useEffect(() => {
     const code = f.ifsc_code.toUpperCase().replace(/\s/g, "");
 
@@ -275,11 +283,23 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     };
   }, [f.ifsc_code]);
 
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValidCategorySelectionsList(f.category_selections)) {
+      setCategoryPickerError(true);
+      setMsg({
+        type: "err",
+        text: "Under product / service details, select at least one broad industry and tick at least one vendor type under it.",
+      });
+      return;
+    }
+    setCategoryPickerError(false);
     setBusy(true);
     setMsg(null);
     try {
+      const extra = f.additional_service_locations.trim();
       const body = {
         ...f,
         its_number: itsNumber.trim() ? itsNumber.replace(/\D/g, "") : null,
@@ -288,6 +308,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
           f.aadhaar_linked_with_pan === "yes" || f.aadhaar_linked_with_pan === "no"
             ? f.aadhaar_linked_with_pan
             : "unknown",
+        service_location_other: extra.length > 0,
+        additional_service_locations: extra.length > 0 ? extra : null,
       };
 
       const res = await fetch("/api/vendors/register", {
@@ -713,18 +735,21 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
 
       <SectionTitle n={5} title="Product / service details" />
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass()}>Main category *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.main_category}
-            onChange={(e) => set("main_category", e.target.value)}
+        <div className="sm:col-span-2">
+          <label className={labelClass()}>Categories you supply *</label>
+          <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+            Tick every broad industry that applies and all vendor types you offer under each. You may choose several
+            industries and several types within one industry.
+          </p>
+          <CategorySelectionsPicker
+            value={f.category_selections}
+            onChange={(next) => {
+              setCategoryPickerError(false);
+              setF((p) => ({ ...p, category_selections: next }));
+            }}
+            variant="vendor"
+            error={categoryPickerError}
           />
-        </div>
-        <div>
-          <label className={labelClass()}>Sub category</label>
-          <input className={inputClass()} value={f.sub_category} onChange={(e) => set("sub_category", e.target.value)} />
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Products / services offered *</label>
@@ -736,40 +761,97 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             onChange={(e) => set("products_services_offered", e.target.value)}
           />
         </div>
-        <div className="sm:col-span-2 space-y-2">
-          <span className={labelClass()}>Service locations</span>
-          <label className="flex items-center gap-2 text-sm">
+        <div className="sm:col-span-2 rounded-lg border border-zinc-200 bg-zinc-50/90 p-4 dark:border-zinc-600 dark:bg-zinc-900/50">
+          <p className="mb-1 text-center text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+            Geographic coverage
+          </p>
+          <h3 className="mb-2 text-center text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+            Programme supply area
+          </h3>
+          <p className="mx-auto mb-4 max-w-2xl text-center text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+            For Ashara Mubaraka 1448H (Indore Araz), <strong className="text-zinc-800 dark:text-zinc-200">every</strong>{" "}
+            registered vendor must be able to supply for this programme in <strong>Indore</strong> and across{" "}
+            <strong>Madhya Pradesh</strong>. Tick both boxes below to confirm that applies to your organisation.
+          </p>
+
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">
+            Confirm for this programme (both required) *
+          </p>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">Select all that apply — both must be ticked unless you choose PAN India.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex min-h-[4.5rem] cursor-pointer items-start gap-3 rounded-md border border-zinc-200 bg-white p-3 text-sm shadow-sm dark:border-zinc-600 dark:bg-zinc-950">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-emerald-600"
+                required={!f.service_location_pan_india}
+                disabled={f.service_location_pan_india}
+                checked={f.service_location_indore}
+                onChange={(e) => setProgrammeIndore(e.target.checked)}
+              />
+              <span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-50">Indore</span>
+                <span className="mt-1 block text-xs font-normal leading-snug text-zinc-600 dark:text-zinc-400">
+                  {f.service_location_pan_india
+                    ? "Covered under PAN India."
+                    : "We can supply goods or services for this programme within Indore city."}
+                </span>
+              </span>
+            </label>
+            <label className="flex min-h-[4.5rem] cursor-pointer items-start gap-3 rounded-md border border-zinc-200 bg-white p-3 text-sm shadow-sm dark:border-zinc-600 dark:bg-zinc-950">
+              <input
+                type="checkbox"
+                className="mt-0.5 accent-emerald-600"
+                required={!f.service_location_pan_india}
+                disabled={f.service_location_pan_india}
+                checked={f.service_location_madhya_pradesh}
+                onChange={(e) => setProgrammeMadhyaPradesh(e.target.checked)}
+              />
+              <span>
+                <span className="font-semibold text-zinc-900 dark:text-zinc-50">Madhya Pradesh</span>
+                <span className="mt-1 block text-xs font-normal leading-snug text-zinc-600 dark:text-zinc-400">
+                  {f.service_location_pan_india
+                    ? "Covered under PAN India."
+                    : "We can supply goods or services for this programme across Madhya Pradesh (statewide), not only Indore."}
+                </span>
+              </span>
+            </label>
+          </div>
+
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-md border border-dashed border-zinc-300 bg-white/80 p-3 text-sm dark:border-zinc-600 dark:bg-zinc-950/80">
             <input
               type="checkbox"
-              checked={f.service_location_other}
-              onChange={(e) => set("service_location_other", e.target.checked)}
-            />
-            Other locations
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+              className="mt-0.5 accent-emerald-600"
               checked={f.service_location_pan_india}
               onChange={(e) => onPanIndia(e.target.checked)}
             />
-            PAN India (auto-selects Madhya Pradesh and Indore)
+            <span>
+              <span className="font-medium text-zinc-900 dark:text-zinc-50">PAN India</span>
+              <span className="mt-0.5 block text-xs text-zinc-600 dark:text-zinc-400">
+                Optional — we also operate across India. Selecting this automatically satisfies Indore and Madhya
+                Pradesh above.
+              </span>
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={f.service_location_madhya_pradesh}
-              onChange={(e) => onMp(e.target.checked)}
+
+          <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-700">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Other locations (optional)
+            </p>
+            <label className={labelClass()}>Additional cities, districts, or regions you can supply</label>
+            <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Not required. Use this to tell us where else you can work beyond the programme requirement (for example
+              neighbouring states or specific towns). One per line or comma-separated is fine.
+            </p>
+            <textarea
+              rows={3}
+              maxLength={2000}
+              className={inputClass()}
+              value={f.additional_service_locations}
+              onChange={(e) => set("additional_service_locations", e.target.value)}
+              placeholder="e.g. Bhopal, Ujjain, Dewas; Rajasthan for certain materials only"
             />
-            Madhya Pradesh (auto-selects Indore)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={f.service_location_indore}
-              onChange={(e) => set("service_location_indore", e.target.checked)}
-            />
-            Indore
-          </label>
+            <p className="mt-0.5 text-right text-[11px] text-zinc-400">{f.additional_service_locations.length}/2000</p>
+          </div>
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Annual turnover — last three years</label>

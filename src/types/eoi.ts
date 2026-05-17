@@ -15,20 +15,26 @@ export interface ExpressionOfInterestRow {
   business_name: string;
   entity_type: string;
   year_established: number;
+  business_city: string | null;
+  business_state: string | null;
   business_address: string;
   contact_person_name: string;
   contact_role: string | null;
+  its_number: string | null;
   mobile: string;
   email: string;
+  main_category: string | null;
   primary_category: string;
+  /** jsonb array of { main, sub }; source of truth when present */
+  category_selections?: unknown;
   departments_served: unknown;
   zones: unknown;
+  can_work_in_programme_location: string | null;
   experience_years: string;
   turnover_range: string | null;
   capability_description: string;
   previous_work: string | null;
   pan_number: string;
-  its_number: string | null;
   gst_number: string | null;
   gst_status: string;
   msme_status: string | null;

@@ -1,5 +1,26 @@
 import type { VendorRegistrationRow } from "@/types/vendor";
 
+function categoryPairsForAi(v: VendorRegistrationRow): string[] {
+  const raw = v.category_selections;
+  if (Array.isArray(raw)) {
+    const out: string[] = [];
+    for (const item of raw) {
+      if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        const main = typeof o.main === "string" ? o.main.trim() : "";
+        const sub = typeof o.sub === "string" ? o.sub.trim() : "";
+        if (main && sub) out.push(`${main} — ${sub}`);
+      }
+    }
+    if (out.length) return out;
+  }
+  const m = v.main_category?.trim() ?? "";
+  const s = (v.sub_category ?? "").trim();
+  if (m && s) return [`${m} — ${s}`];
+  if (m) return [m];
+  return [];
+}
+
 /** Strip sensitive fields before sending to an external LLM. */
 export function toVendorAiSnapshot(v: VendorRegistrationRow): Record<string, unknown> {
   const email = v.email;
@@ -16,6 +37,7 @@ export function toVendorAiSnapshot(v: VendorRegistrationRow): Record<string, unk
     country: v.country,
     main_category: v.main_category,
     sub_category: v.sub_category,
+    category_pairs: categoryPairsForAi(v),
     gst_registered: v.gst_registered,
     msme_registered: v.msme_registered,
     email_domain: emailDomain,

@@ -42,11 +42,13 @@ export interface VendorRegistrationRow {
   account_type: string;
   main_category: string;
   sub_category: string | null;
+  category_selections?: unknown;
   products_services_offered: string;
   service_location_other: boolean;
   service_location_pan_india: boolean;
   service_location_madhya_pradesh: boolean;
   service_location_indore: boolean;
+  additional_service_locations: string | null;
   turnover_fy_2023_24: string | number | null;
   turnover_fy_2024_25: string | number | null;
   turnover_fy_2025_26: string | number | null;

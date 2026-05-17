@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import {
+  legacyCategoryPairsSummary,
+  legacyMainCategoriesSummary,
+} from "@/lib/eoi/eoi-main-sub-categories";
 import { eoiSubmitSchema } from "@/lib/schemas/eoi";
 import { sendEoiSubmittedEmail } from "@/lib/email/resend-notifications";
-import { createServerAnonSupabase } from "@/lib/supabase/server-anon";
+import { createServiceSupabase } from "@/lib/supabase/service";
 import { randomBytes } from "crypto";
 
 function generateReference(): string {
@@ -34,20 +38,25 @@ export async function POST(req: Request) {
     business_name: p.business_name,
     entity_type: p.entity_type,
     year_established: p.year_established,
+    business_city: p.business_city.trim(),
+    business_state: p.business_state.trim(),
     business_address: p.business_address,
     contact_person_name: p.contact_person_name,
     contact_role: p.contact_role ?? null,
+    its_number: p.its_number,
     mobile: mobileDigits,
     email: p.email.trim().toLowerCase(),
-    primary_category: p.primary_category,
+    main_category: legacyMainCategoriesSummary(p.category_selections),
+    primary_category: legacyCategoryPairsSummary(p.category_selections),
+    category_selections: p.category_selections,
     departments_served: p.departments_served,
     zones: p.zones,
+    can_work_in_programme_location: p.can_work_in_programme_location,
     experience_years: p.experience_years,
     turnover_range: p.turnover_range ?? null,
     capability_description: p.capability_description,
     previous_work: p.previous_work ?? null,
     pan_number: p.pan_number,
-    its_number: p.its_number,
     gst_number: p.gst_number,
     gst_status: p.gst_status,
     msme_status: p.msme_status ?? null,
@@ -57,7 +66,9 @@ export async function POST(req: Request) {
   };
 
   try {
-    const supabase = createServerAnonSupabase();
+    // Service role: insert + .select() must bypass RLS. Anon only has INSERT policy; returning rows
+    // requires SELECT, which RLS blocks for anon — PostgREST then fails the whole request.
+    const supabase = createServiceSupabase();
     for (let attempt = 0; attempt < 5; attempt++) {
       const ref = generateReference();
       const { data, error } = await supabase
@@ -81,7 +92,10 @@ export async function POST(req: Request) {
       if (error?.code !== "23505") {
         console.error("EOI insert error:", error);
         return NextResponse.json(
-          { error: "Could not save EOI. Check Supabase migration and RLS." },
+          {
+            error: "Could not save EOI. Check Supabase migration, RLS, and SUPABASE_SERVICE_ROLE_KEY on the server.",
+            details: { code: error?.code, message: error?.message },
+          },
           { status: 500 },
         );
       }

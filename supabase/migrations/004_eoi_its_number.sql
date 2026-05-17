@@ -1,4 +1,5 @@
--- Optional community ITS number on Expression of Interest
+-- Optional 8-digit ITS on Expression of Interest (community identifier)
+-- Run after 002_expression_of_interest.sql
 
 alter table public.expression_of_interest
   add column if not exists its_number text;
@@ -11,4 +12,4 @@ alter table public.expression_of_interest
   check (its_number is null or its_number ~ '^\d{8}$');
 
 comment on column public.expression_of_interest.its_number is
-  'Optional 8-digit ITS identifier for community members.';
+  'Optional 8-digit ITS identifier for community members; null if not applicable.';

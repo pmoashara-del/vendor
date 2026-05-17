@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  legacyCategoryPairsSummary,
+  legacyMainCategoriesSummary,
+} from "@/lib/eoi/eoi-main-sub-categories";
 import { sendVendorRegistrationEmail } from "@/lib/email/resend-notifications";
 import { vendorRegistrationPayloadSchema } from "@/lib/schemas/vendor-registration";
 import { createServiceSupabase } from "@/lib/supabase/service";
@@ -91,13 +95,15 @@ export async function POST(req: Request) {
     account_number: p.account_number,
     ifsc_code: p.ifsc_code,
     account_type: p.account_type,
-    main_category: p.main_category,
-    sub_category: p.sub_category,
+    main_category: legacyMainCategoriesSummary(p.category_selections),
+    sub_category: legacyCategoryPairsSummary(p.category_selections) || null,
+    category_selections: p.category_selections,
     products_services_offered: p.products_services_offered,
     service_location_other: p.service_location_other,
     service_location_pan_india: p.service_location_pan_india,
     service_location_madhya_pradesh: p.service_location_madhya_pradesh,
     service_location_indore: p.service_location_indore,
+    additional_service_locations: p.additional_service_locations,
     turnover_fy_2023_24: p.turnover_fy_2023_24,
     turnover_fy_2024_25: p.turnover_fy_2024_25,
     turnover_fy_2025_26: p.turnover_fy_2025_26,
