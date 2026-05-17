@@ -1,12 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   EOI_CAN_WORK_IN_LOCATION,
   EOI_CAN_WORK_IN_LOCATION_LABELS,
-  EOI_CATEGORY_GROUPS,
-  EOI_DEPARTMENT_LABELS,
-  EOI_DEPARTMENTS,
   EOI_ENTITY_TYPES,
   EOI_EXPERIENCE,
   EOI_GST_STATUS,
@@ -22,6 +19,11 @@ import {
   validateGSTIN,
 } from "@/lib/eoi/indian-gst-state";
 import { panEntityConsistencyMessage, panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
+import {
+  EOI_MAIN_CATEGORY_OPTIONS,
+  isValidMainSubPair,
+  subcategoriesForMain,
+} from "@/lib/eoi/eoi-main-sub-categories";
 
 type Step = 1 | 2 | 3;
 
@@ -53,8 +55,8 @@ export function ExpressionOfInterestForm() {
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
 
-  const [category, setCategory] = useState("");
-  const [depts, setDepts] = useState<Record<string, boolean>>({});
+  const [mainCategory, setMainCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
   const [zones, setZones] = useState<Record<string, boolean>>({});
   const [canWorkLocation, setCanWorkLocation] = useState<EoiCanWorkInLocation | "">("");
   const [expYrs, setExpYrs] = useState("");
@@ -73,9 +75,7 @@ export function ExpressionOfInterestForm() {
 
   const [errs, setErrs] = useState<Partial<Record<string, boolean>>>({});
 
-  function toggleDept(k: string) {
-    setDepts((d) => ({ ...d, [k]: !d[k] }));
-  }
+  const subCategoryOptions = useMemo(() => subcategoriesForMain(mainCategory), [mainCategory]);
   function toggleZone(k: string) {
     setZones((z) => ({ ...z, [k]: !z[k] }));
   }
@@ -115,7 +115,9 @@ export function ExpressionOfInterestForm() {
       if (gstStatus === "Registered" && !validateGSTIN(gstNum)) e.gstNum = true;
     }
     if (s === 2) {
-      if (!category) e.category = true;
+      if (!mainCategory) e.mainCategory = true;
+      if (!subCategory) e.subCategory = true;
+      else if (!isValidMainSubPair(mainCategory, subCategory)) e.subCategory = true;
       if (!EOI_ZONES.some((z) => zones[z])) e.zones = true;
       if (!canWorkLocation) e.canWorkLocation = true;
       if (!expYrs) e.expYrs = true;
@@ -150,7 +152,7 @@ export function ExpressionOfInterestForm() {
     }
     setBusy(true);
     setFormErr(null);
-    const departments_served = EOI_DEPARTMENTS.filter((d) => depts[d]).map(String);
+    const departments_served: string[] = [];
     const zonesArr = EOI_ZONES.filter((z) => zones[z]).map(String);
     const itsDigits = itsNumber.replace(/\D/g, "");
     const body = {
@@ -165,7 +167,8 @@ export function ExpressionOfInterestForm() {
       its_number: itsDigits.length === ITS_DIGITS ? itsDigits : null,
       mobile: mobile.replace(/\D/g, ""),
       email: email.trim(),
-      primary_category: category,
+      main_category: mainCategory,
+      primary_category: subCategory,
       departments_served,
       zones: zonesArr,
       can_work_in_programme_location: canWorkLocation as EoiCanWorkInLocation,
@@ -568,50 +571,65 @@ export function ExpressionOfInterestForm() {
           <Panel
             icon="📦"
             title="What you can supply"
-            desc="Pick your closest category, then list the specific items, materials, equipment, or services you can provide. Shortlisted vendors are matched using this list."
+            desc="Choose your broad industry (main category) and vendor type (sub category), then list the specific items, materials, equipment, or services you can provide. Shortlisted vendors are matched using this information."
             body={
               <>
-                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description." />
-                <div>
-                  <Label req>Primary category (closest match)</Label>
-                  <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
-                    Choose the single best fit. The detailed list of everything you can provide goes in the required box
-                    below.
-                  </p>
-                  <select
-                    className={fieldClass(!!errs.category)}
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                  >
-                    <option value="">— Select a category —</option>
-                    {EOI_CATEGORY_GROUPS.map((g) => (
-                      <optgroup key={g.label} label={g.label}>
-                        {g.options.map((o) => (
-                          <option key={o} value={o}>
-                            {o}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-                <div className="mt-5">
-                  <Label>Departments / areas (optional tags)</Label>
-                  <p className="mb-2 text-[12px] text-[#8a7a6e]">
-                    Tick any that apply. This does not replace your item list — it only helps routing.
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {EOI_DEPARTMENTS.map((d) => (
-                      <label key={d} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
-                        <input
-                          type="checkbox"
-                          checked={!!depts[d]}
-                          onChange={() => toggleDept(d)}
-                          className="accent-[#b8860b]"
-                        />
-                        {EOI_DEPARTMENT_LABELS[d] ?? d}
-                      </label>
-                    ))}
+                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description. First choose main and sub category below." />
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Label req>Main category (broad industry)</Label>
+                    <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
+                      Each broad industry appears once. Your specific line of business is chosen next as sub category.
+                    </p>
+                    <select
+                      className={fieldClass(!!errs.mainCategory)}
+                      value={mainCategory}
+                      onChange={(e) => {
+                        const m = e.target.value;
+                        setMainCategory(m);
+                        setSubCategory((prev) => {
+                          const opts = subcategoriesForMain(m);
+                          return opts.includes(prev) ? prev : "";
+                        });
+                      }}
+                    >
+                      <option value="">— Select main category —</option>
+                      {EOI_MAIN_CATEGORY_OPTIONS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    {errs.mainCategory ? <p className="mt-1 text-xs text-red-600">Select a main category</p> : null}
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label req>Sub category (vendor type)</Label>
+                    <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
+                      Only types that belong to your main category are shown. If you change main category, pick sub
+                      category again.
+                    </p>
+                    <select
+                      className={fieldClass(!!errs.subCategory)}
+                      value={subCategory}
+                      disabled={!mainCategory}
+                      onChange={(e) => setSubCategory(e.target.value)}
+                    >
+                      <option value="">
+                        {mainCategory ? "— Select vendor type —" : "— Select main category first —"}
+                      </option>
+                      {subCategoryOptions.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                    {errs.subCategory ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        {!subCategory
+                          ? "Select a sub category that matches your main category."
+                          : "Sub category does not match the selected main category — choose again."}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <Divider label="Programme location" />
@@ -771,8 +789,10 @@ export function ExpressionOfInterestForm() {
                   <dl className="mt-3 grid gap-2 sm:grid-cols-2">
                     <dt className="text-[#8a7a6e]">Business</dt>
                     <dd className="font-medium">{bizName}</dd>
-                    <dt className="text-[#8a7a6e]">Category</dt>
-                    <dd className="font-medium">{category}</dd>
+                    <dt className="text-[#8a7a6e]">Main category</dt>
+                    <dd className="font-medium">{mainCategory || "—"}</dd>
+                    <dt className="text-[#8a7a6e]">Sub category (vendor type)</dt>
+                    <dd className="font-medium">{subCategory || "—"}</dd>
                     <dt className="text-[#8a7a6e]">Items &amp; services you will supply</dt>
                     <dd className="whitespace-pre-wrap text-[13px] font-medium leading-snug">{capability || "—"}</dd>
                     <dt className="text-[#8a7a6e]">Contact</dt>

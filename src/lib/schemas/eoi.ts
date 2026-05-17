@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { validateGSTIN } from "@/lib/eoi/indian-gst-state";
+import {
+  isKnownMainCategory,
+  isValidMainSubPair,
+} from "@/lib/eoi/eoi-main-sub-categories";
 import { panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 
 const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
@@ -29,7 +33,12 @@ const eoiSubmitSchemaBase = z.object({
     .refine((d) => d.length === 10, "Enter a valid 10-digit mobile number"),
   email: z.string().email().max(320),
 
-  primary_category: z.string().min(1).max(500),
+  main_category: z
+    .string()
+    .min(1, "Select a main category")
+    .max(200)
+    .refine((s) => isKnownMainCategory(s), "Invalid main category"),
+  primary_category: z.string().min(1, "Select a sub category").max(500),
   departments_served: z.array(z.string().max(100)).default([]),
   zones: z.array(z.string().max(100)).min(1, "Select at least one zone"),
   can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
@@ -84,6 +93,13 @@ export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "PAN 4th character does not match the selected entity type",
       path: ["pan_number"],
+    });
+  }
+  if (!isValidMainSubPair(data.main_category, data.primary_category)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Sub category must belong to the selected main category",
+      path: ["primary_category"],
     });
   }
 });

@@ -1,5 +1,4 @@
-/** Primary category options (Expression of Interest) — grouped for select UI */
-
+/** @deprecated EOI form uses `eoi-main-sub-categories.ts` (main + sub). Kept for reference only. */
 export const EOI_CATEGORY_GROUPS: { label: string; options: string[] }[] = [
   {
     label: "Food & Catering",

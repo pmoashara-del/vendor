@@ -146,8 +146,9 @@ function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClos
 
           <SectionTitle>Programme &amp; capability</SectionTitle>
           <dl>
-            <DetailRow label="Primary category">{row.primary_category}</DetailRow>
-            <DetailRow label="Departments served">{formatJsonList(row.departments_served)}</DetailRow>
+            <DetailRow label="Main category (broad industry)">{row.main_category ?? "—"}</DetailRow>
+            <DetailRow label="Sub category (vendor type)">{row.primary_category}</DetailRow>
+            <DetailRow label="Departments served (legacy)">{formatJsonList(row.departments_served)}</DetailRow>
             <DetailRow label="Zones / coverage">{formatJsonList(row.zones)}</DetailRow>
             <DetailRow label="Can work in programme area">{row.can_work_in_programme_location ?? "—"}</DetailRow>
             <DetailRow label="Experience (years band)">{row.experience_years}</DetailRow>
@@ -200,6 +201,7 @@ export function EoiAdminPanel({
       return (
         s.business_name.toLowerCase().includes(q) ||
         s.primary_category.toLowerCase().includes(q) ||
+        (s.main_category ?? "").toLowerCase().includes(q) ||
         s.email.toLowerCase().includes(q) ||
         s.reference_number.toLowerCase().includes(q) ||
         pan.includes(q) ||
@@ -276,7 +278,7 @@ export function EoiAdminPanel({
               <th className="px-2 py-2">Submitted</th>
               <th className="px-2 py-2">Last updated</th>
               <th className="px-2 py-2">Business</th>
-              <th className="px-2 py-2">Category</th>
+              <th className="px-2 py-2">Main / sub</th>
               <th className="px-2 py-2">Email</th>
               <th className="px-2 py-2">ITS</th>
               <th className="px-2 py-2">Status</th>
@@ -295,7 +297,22 @@ export function EoiAdminPanel({
                   {formatDateTime(s.updated_at)}
                 </td>
                 <td className="max-w-[180px] truncate px-2 py-2 font-medium">{s.business_name}</td>
-                <td className="max-w-[160px] truncate px-2 py-2 text-xs">{s.primary_category}</td>
+                <td
+                  className="max-w-[200px] truncate px-2 py-2 text-xs"
+                  title={
+                    s.main_category
+                      ? `${s.main_category} — ${s.primary_category}`
+                      : s.primary_category
+                  }
+                >
+                  {s.main_category ? (
+                    <>
+                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{s.main_category}</span>
+                      <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+                    </>
+                  ) : null}
+                  <span>{s.primary_category}</span>
+                </td>
                 <td className="max-w-[180px] truncate px-2 py-2 text-xs">{s.email}</td>
                 <td className="whitespace-nowrap px-2 py-2 font-mono text-xs tabular-nums">{s.its_number ?? "—"}</td>
                 <td className="px-2 py-2">

@@ -23,6 +23,7 @@ export interface ExpressionOfInterestRow {
   its_number: string | null;
   mobile: string;
   email: string;
+  main_category: string | null;
   primary_category: string;
   departments_served: unknown;
   zones: unknown;
