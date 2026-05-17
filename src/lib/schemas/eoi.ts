@@ -3,6 +3,7 @@ import {
   isValidCategorySelectionsList,
   normalizeCategorySelections,
 } from "@/lib/eoi/eoi-main-sub-categories";
+import { programmeZonesFromWorkLocation } from "@/lib/eoi/options";
 import { panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 import { validateGSTIN, validatePAN } from "@/lib/india-tax-ids";
 
@@ -45,7 +46,7 @@ const eoiSubmitSchemaBase = z.object({
       message: "Select at least one main category and at least one vendor type under it",
     }),
   departments_served: z.array(z.string().max(100)).default([]),
-  zones: z.array(z.string().max(100)).min(1, "Select at least one zone"),
+  zones: z.array(z.string().max(100)),
   can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
   experience_years: z.string().min(1).max(100),
   turnover_range: z.string().max(200).optional().nullable(),
@@ -106,6 +107,18 @@ export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "Each ticked vendor type must belong to its broad industry",
       path: ["category_selections"],
+    });
+  }
+  const expectedZones = programmeZonesFromWorkLocation(data.can_work_in_programme_location);
+  const zonesMatch =
+    data.zones.length === expectedZones.length &&
+    expectedZones.every((z) => data.zones.includes(z)) &&
+    data.zones.every((z) => expectedZones.includes(z));
+  if (!zonesMatch) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Coverage must match Indore / Madhya Pradesh work availability (Yes or Limited → programme area; No → none)",
+      path: ["zones"],
     });
   }
 });

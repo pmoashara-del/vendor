@@ -10,7 +10,7 @@ import {
   EOI_MSME,
   EOI_SOURCE,
   EOI_TURNOVER,
-  EOI_ZONES,
+  programmeZonesFromWorkLocation,
 } from "@/lib/eoi/options";
 import type { EoiCanWorkInLocation } from "@/lib/eoi/options";
 import { GST_STATE_OPTIONS, resolveGstStateCode } from "@/lib/eoi/indian-gst-state";
@@ -75,7 +75,6 @@ export function ExpressionOfInterestForm() {
   const [email, setEmail] = useState("");
 
   const [categorySelections, setCategorySelections] = useState<CategorySelection[]>([]);
-  const [zones, setZones] = useState<Record<string, boolean>>({});
   const [canWorkLocation, setCanWorkLocation] = useState<EoiCanWorkInLocation | "">("");
   const [expYrs, setExpYrs] = useState("");
   const [turnover, setTurnover] = useState("");
@@ -96,10 +95,6 @@ export function ExpressionOfInterestForm() {
   const [step1SubmitAttempted, setStep1SubmitAttempted] = useState(false);
 
   const s1Err = step1SubmitAttempted;
-
-  function toggleZone(k: string) {
-    setZones((z) => ({ ...z, [k]: !z[k] }));
-  }
 
   function syncGstIfNeeded(panVal: string) {
     if (!gstStatusesNeedingGstin(gstStatus)) return;
@@ -130,7 +125,6 @@ export function ExpressionOfInterestForm() {
     }
     if (s === 2) {
       if (!isValidCategorySelectionsList(categorySelections)) e.categorySelections = true;
-      if (!EOI_ZONES.some((z) => zones[z])) e.zones = true;
       if (!canWorkLocation) e.canWorkLocation = true;
       if (!expYrs) e.expYrs = true;
       if (!capability.trim()) e.capability = true;
@@ -180,7 +174,7 @@ export function ExpressionOfInterestForm() {
     setBusy(true);
     setFormErr(null);
     const departments_served: string[] = [];
-    const zonesArr = EOI_ZONES.filter((z) => zones[z]).map(String);
+    const zonesArr = canWorkLocation ? programmeZonesFromWorkLocation(canWorkLocation) : [];
     const itsDigits = itsNumber.replace(/\D/g, "");
     const body = {
       business_name: bizName.trim(),
@@ -616,8 +610,8 @@ export function ExpressionOfInterestForm() {
                 <Divider label="Programme location" />
                 <div className="sm:col-span-2">
                   <p className="mb-3 text-[12px] leading-snug text-[#8a7a6e]">
-                    Programme work is evaluated for Indore and Madhya Pradesh. The questions below are about where you
-                    can take assignments for this programme — not only where your business is registered.
+                    Programme work is evaluated for Indore and Madhya Pradesh. This is about where you can take
+                    assignments for this programme, not only where your business is registered.
                   </p>
                   <Label req>Can you take on work based in Indore / Madhya Pradesh for this programme?</Label>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -639,23 +633,6 @@ export function ExpressionOfInterestForm() {
                   {errs.canWorkLocation ? (
                     <p className="mt-1 text-xs text-red-600">Select one option</p>
                   ) : null}
-                </div>
-                <div>
-                  <Label req>Programme area you can operate in</Label>
-                  <div className="mt-2">
-                    {EOI_ZONES.map((z) => (
-                      <label key={z} className="flex cursor-pointer items-start gap-2 text-[13px] text-[#4a3f35]">
-                        <input
-                          type="checkbox"
-                          checked={!!zones[z]}
-                          onChange={() => toggleZone(z)}
-                          className="mt-0.5 accent-[#b8860b]"
-                        />
-                        <span>{z}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {errs.zones ? <p className="mt-1 text-xs text-red-600">Confirm programme coverage</p> : null}
                 </div>
                 <Divider label="Experience & Scale" />
                 <div className="grid gap-5 sm:grid-cols-2">
@@ -800,10 +777,6 @@ export function ExpressionOfInterestForm() {
                     <dt className="text-[#8a7a6e]">Work in programme area</dt>
                     <dd className="font-medium">
                       {canWorkLocation ? EOI_CAN_WORK_IN_LOCATION_LABELS[canWorkLocation] : "—"}
-                    </dd>
-                    <dt className="text-[#8a7a6e]">Programme coverage</dt>
-                    <dd className="font-medium">
-                      {EOI_ZONES.filter((z) => zones[z]).join(", ") || "—"}
                     </dd>
                     {itsNumber.replace(/\D/g, "").length === ITS_DIGITS ? (
                       <>

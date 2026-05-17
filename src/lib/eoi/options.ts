@@ -76,13 +76,18 @@ export const EOI_DEPARTMENT_LABELS: Record<string, string> = {
   All: "All Departments",
 };
 
-/** Single programme geography — one checkbox on the form */
+/** Single programme geography for this EOI */
 export const EOI_PROGRAMME_ZONE = "Indore, Madhya Pradesh" as const;
 export const EOI_ZONES = [EOI_PROGRAMME_ZONE] as const;
 
 /** Whether the applicant can take on work based in the programme area */
 export const EOI_CAN_WORK_IN_LOCATION = ["Yes", "No", "Limited"] as const;
 export type EoiCanWorkInLocation = (typeof EOI_CAN_WORK_IN_LOCATION)[number];
+
+/** Stored `zones` payload: empty when the applicant cannot work in this geography; otherwise the programme area. */
+export function programmeZonesFromWorkLocation(loc: EoiCanWorkInLocation): string[] {
+  return loc === "No" ? [] : [EOI_PROGRAMME_ZONE];
+}
 
 export const EOI_CAN_WORK_IN_LOCATION_LABELS: Record<EoiCanWorkInLocation, string> = {
   Yes: "Yes — we can take on work based in Indore / Madhya Pradesh",
