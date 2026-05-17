@@ -25,6 +25,8 @@ export interface ExpressionOfInterestRow {
   email: string;
   main_category: string | null;
   primary_category: string;
+  /** jsonb array of { main, sub }; source of truth when present */
+  category_selections?: unknown;
   departments_served: unknown;
   zones: unknown;
   can_work_in_programme_location: string | null;

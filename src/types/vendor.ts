@@ -42,6 +42,7 @@ export interface VendorRegistrationRow {
   account_type: string;
   main_category: string;
   sub_category: string | null;
+  category_selections?: unknown;
   products_services_offered: string;
   service_location_other: boolean;
   service_location_pan_india: boolean;

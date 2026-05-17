@@ -1,4 +1,8 @@
- import { z } from "zod";
+import { z } from "zod";
+import {
+  isValidCategorySelectionsList,
+  normalizeCategorySelections,
+} from "@/lib/eoi/eoi-main-sub-categories";
 
 const emptyToNull = (v: unknown) => (v === "" || v === undefined ? null : v);
 
@@ -107,8 +111,17 @@ export const vendorRegistrationPayloadSchema = z
       .refine((s) => ifscRegex.test(s), "Invalid IFSC"),
     account_type: z.string().min(1).max(100),
 
-    main_category: z.string().min(1).max(200),
-    sub_category: z.preprocess(emptyToNull, z.string().max(200).nullable()),
+    category_selections: z
+      .array(
+        z.object({
+          main: z.string().max(200),
+          sub: z.string().max(500),
+        }),
+      )
+      .transform((rows) => normalizeCategorySelections(rows))
+      .refine((a) => a.length > 0, {
+        message: "Select at least one main category and at least one vendor type under it",
+      }),
     products_services_offered: z.string().min(1).max(4000),
     service_location_other: z.boolean(),
     service_location_pan_india: z.boolean(),
@@ -184,6 +197,13 @@ export const vendorRegistrationPayloadSchema = z
         code: z.ZodIssueCode.custom,
         path: ["service_location_indore"],
         message: "Supply in Indore and Madhya Pradesh is required for this programme",
+      });
+    }
+    if (!isValidCategorySelectionsList(data.category_selections)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["category_selections"],
+        message: "Each selection must be a valid vendor type under its broad industry",
       });
     }
   });

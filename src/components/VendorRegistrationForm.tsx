@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
 import { ItsNumberGate } from "@/components/ItsNumberGate";
+import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
 
 const IFSC_FORMAT_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 
@@ -37,8 +39,7 @@ interface FormState {
   account_number: string;
   ifsc_code: string;
   account_type: string;
-  main_category: string;
-  sub_category: string;
+  category_selections: CategorySelection[];
   products_services_offered: string;
   service_location_pan_india: boolean;
   service_location_madhya_pradesh: boolean;
@@ -97,8 +98,7 @@ const initial: FormState = {
   account_number: "",
   ifsc_code: "",
   account_type: "",
-  main_category: "",
-  sub_category: "",
+  category_selections: [],
   products_services_offered: "",
   service_location_pan_india: false,
   service_location_madhya_pradesh: true,
@@ -148,6 +148,7 @@ function SectionTitle({ n, title }: { n: number; title: string }) {
 
 export function VendorRegistrationForm({ invitationToken }: { invitationToken: string }) {
   const [f, setF] = useState<FormState>(initial);
+  const [categoryPickerError, setCategoryPickerError] = useState(false);
   const [formUnlocked, setFormUnlocked] = useState(false);
   const [itsNumber, setItsNumber] = useState("");
   const [itsError, setItsError] = useState<string | null>(null);
@@ -261,6 +262,15 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isValidCategorySelectionsList(f.category_selections)) {
+      setCategoryPickerError(true);
+      setMsg({
+        type: "err",
+        text: "Under product / service details, select at least one broad industry and tick at least one vendor type under it.",
+      });
+      return;
+    }
+    setCategoryPickerError(false);
     setBusy(true);
     setMsg(null);
     try {
@@ -690,18 +700,21 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
 
       <SectionTitle n={5} title="Product / service details" />
       <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass()}>Main category *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.main_category}
-            onChange={(e) => set("main_category", e.target.value)}
+        <div className="sm:col-span-2">
+          <label className={labelClass()}>Categories you supply *</label>
+          <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+            Tick every broad industry that applies and all vendor types you offer under each. You may choose several
+            industries and several types within one industry.
+          </p>
+          <CategorySelectionsPicker
+            value={f.category_selections}
+            onChange={(next) => {
+              setCategoryPickerError(false);
+              setF((p) => ({ ...p, category_selections: next }));
+            }}
+            variant="vendor"
+            error={categoryPickerError}
           />
-        </div>
-        <div>
-          <label className={labelClass()}>Sub category</label>
-          <input className={inputClass()} value={f.sub_category} onChange={(e) => set("sub_category", e.target.value)} />
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Products / services offered *</label>

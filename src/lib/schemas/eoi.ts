@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { validateGSTIN } from "@/lib/eoi/indian-gst-state";
 import {
-  isKnownMainCategory,
-  isValidMainSubPair,
+  isValidCategorySelectionsList,
+  normalizeCategorySelections,
 } from "@/lib/eoi/eoi-main-sub-categories";
 import { panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 
@@ -33,12 +33,17 @@ const eoiSubmitSchemaBase = z.object({
     .refine((d) => d.length === 10, "Enter a valid 10-digit mobile number"),
   email: z.string().email().max(320),
 
-  main_category: z
-    .string()
-    .min(1, "Select a main category")
-    .max(200)
-    .refine((s) => isKnownMainCategory(s), "Invalid main category"),
-  primary_category: z.string().min(1, "Select a sub category").max(500),
+  category_selections: z
+    .array(
+      z.object({
+        main: z.string().max(200),
+        sub: z.string().max(500),
+      }),
+    )
+    .transform((rows) => normalizeCategorySelections(rows))
+    .refine((a) => a.length > 0, {
+      message: "Select at least one main category and at least one vendor type under it",
+    }),
   departments_served: z.array(z.string().max(100)).default([]),
   zones: z.array(z.string().max(100)).min(1, "Select at least one zone"),
   can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
@@ -95,11 +100,11 @@ export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
       path: ["pan_number"],
     });
   }
-  if (!isValidMainSubPair(data.main_category, data.primary_category)) {
+  if (!isValidCategorySelectionsList(data.category_selections)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "Sub category must belong to the selected main category",
-      path: ["primary_category"],
+      message: "Each ticked vendor type must belong to its broad industry",
+      path: ["category_selections"],
     });
   }
 });

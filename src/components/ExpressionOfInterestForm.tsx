@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   EOI_CAN_WORK_IN_LOCATION,
   EOI_CAN_WORK_IN_LOCATION_LABELS,
@@ -18,11 +18,12 @@ import {
   suggestGstinFromPanAndLocation,
   validateGSTIN,
 } from "@/lib/eoi/indian-gst-state";
+import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
 import { panEntityConsistencyMessage, panFourthCharMatchesEntityType } from "@/lib/eoi/pan-entity-consistency";
 import {
-  EOI_MAIN_CATEGORY_OPTIONS,
-  isValidMainSubPair,
-  subcategoriesForMain,
+  isValidCategorySelectionsList,
+  legacyCategoryPairsSummary,
+  type CategorySelection,
 } from "@/lib/eoi/eoi-main-sub-categories";
 
 type Step = 1 | 2 | 3;
@@ -55,8 +56,7 @@ export function ExpressionOfInterestForm() {
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
 
-  const [mainCategory, setMainCategory] = useState("");
-  const [subCategory, setSubCategory] = useState("");
+  const [categorySelections, setCategorySelections] = useState<CategorySelection[]>([]);
   const [zones, setZones] = useState<Record<string, boolean>>({});
   const [canWorkLocation, setCanWorkLocation] = useState<EoiCanWorkInLocation | "">("");
   const [expYrs, setExpYrs] = useState("");
@@ -75,7 +75,6 @@ export function ExpressionOfInterestForm() {
 
   const [errs, setErrs] = useState<Partial<Record<string, boolean>>>({});
 
-  const subCategoryOptions = useMemo(() => subcategoriesForMain(mainCategory), [mainCategory]);
   function toggleZone(k: string) {
     setZones((z) => ({ ...z, [k]: !z[k] }));
   }
@@ -115,9 +114,7 @@ export function ExpressionOfInterestForm() {
       if (gstStatus === "Registered" && !validateGSTIN(gstNum)) e.gstNum = true;
     }
     if (s === 2) {
-      if (!mainCategory) e.mainCategory = true;
-      if (!subCategory) e.subCategory = true;
-      else if (!isValidMainSubPair(mainCategory, subCategory)) e.subCategory = true;
+      if (!isValidCategorySelectionsList(categorySelections)) e.categorySelections = true;
       if (!EOI_ZONES.some((z) => zones[z])) e.zones = true;
       if (!canWorkLocation) e.canWorkLocation = true;
       if (!expYrs) e.expYrs = true;
@@ -167,8 +164,7 @@ export function ExpressionOfInterestForm() {
       its_number: itsDigits.length === ITS_DIGITS ? itsDigits : null,
       mobile: mobile.replace(/\D/g, ""),
       email: email.trim(),
-      main_category: mainCategory,
-      primary_category: subCategory,
+      category_selections: categorySelections,
       departments_served,
       zones: zonesArr,
       can_work_in_programme_location: canWorkLocation as EoiCanWorkInLocation,
@@ -571,66 +567,28 @@ export function ExpressionOfInterestForm() {
           <Panel
             icon="📦"
             title="What you can supply"
-            desc="Choose your broad industry (main category) and vendor type (sub category), then list the specific items, materials, equipment, or services you can provide. Shortlisted vendors are matched using this information."
+            desc="Choose every broad industry (main category) that applies, and tick all vendor types (sub categories) you offer under each — you may select several industries and several types within each. Then list the specific items, materials, equipment, or services you can provide."
             body={
               <>
-                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description. First choose main and sub category below." />
-                <div className="grid gap-5 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <Label req>Main category (broad industry)</Label>
-                    <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
-                      Each broad industry appears once. Your specific line of business is chosen next as sub category.
+                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description. First tick every main category and vendor type that applies below." />
+                <div className="sm:col-span-2">
+                  <Label req>Categories you supply</Label>
+                  <p className="mb-2 text-[12px] leading-snug text-[#8a7a6e]">
+                    Under each broad industry, tick one or more vendor types. You may select several industries and
+                    several types within the same industry.
+                  </p>
+                  <CategorySelectionsPicker
+                    value={categorySelections}
+                    onChange={setCategorySelections}
+                    variant="eoi"
+                    error={!!errs.categorySelections}
+                  />
+                  {errs.categorySelections ? (
+                    <p className="mt-2 text-xs text-red-600">
+                      Select at least one valid combination — each ticked type must belong to the industry section it
+                      appears under.
                     </p>
-                    <select
-                      className={fieldClass(!!errs.mainCategory)}
-                      value={mainCategory}
-                      onChange={(e) => {
-                        const m = e.target.value;
-                        setMainCategory(m);
-                        setSubCategory((prev) => {
-                          const opts = subcategoriesForMain(m);
-                          return opts.includes(prev) ? prev : "";
-                        });
-                      }}
-                    >
-                      <option value="">— Select main category —</option>
-                      {EOI_MAIN_CATEGORY_OPTIONS.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                    {errs.mainCategory ? <p className="mt-1 text-xs text-red-600">Select a main category</p> : null}
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label req>Sub category (vendor type)</Label>
-                    <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
-                      Only types that belong to your main category are shown. If you change main category, pick sub
-                      category again.
-                    </p>
-                    <select
-                      className={fieldClass(!!errs.subCategory)}
-                      value={subCategory}
-                      disabled={!mainCategory}
-                      onChange={(e) => setSubCategory(e.target.value)}
-                    >
-                      <option value="">
-                        {mainCategory ? "— Select vendor type —" : "— Select main category first —"}
-                      </option>
-                      {subCategoryOptions.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                    {errs.subCategory ? (
-                      <p className="mt-1 text-xs text-red-600">
-                        {!subCategory
-                          ? "Select a sub category that matches your main category."
-                          : "Sub category does not match the selected main category — choose again."}
-                      </p>
-                    ) : null}
-                  </div>
+                  ) : null}
                 </div>
                 <Divider label="Programme location" />
                 <div className="sm:col-span-2">
@@ -789,10 +747,10 @@ export function ExpressionOfInterestForm() {
                   <dl className="mt-3 grid gap-2 sm:grid-cols-2">
                     <dt className="text-[#8a7a6e]">Business</dt>
                     <dd className="font-medium">{bizName}</dd>
-                    <dt className="text-[#8a7a6e]">Main category</dt>
-                    <dd className="font-medium">{mainCategory || "—"}</dd>
-                    <dt className="text-[#8a7a6e]">Sub category (vendor type)</dt>
-                    <dd className="font-medium">{subCategory || "—"}</dd>
+                    <dt className="text-[#8a7a6e]">Categories</dt>
+                    <dd className="font-medium leading-snug">
+                      {legacyCategoryPairsSummary(categorySelections) || "—"}
+                    </dd>
                     <dt className="text-[#8a7a6e]">Items &amp; services you will supply</dt>
                     <dd className="whitespace-pre-wrap text-[13px] font-medium leading-snug">{capability || "—"}</dd>
                     <dt className="text-[#8a7a6e]">Contact</dt>

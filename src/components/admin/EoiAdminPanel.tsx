@@ -1,6 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
+import { normalizeCategorySelections } from "@/lib/eoi/eoi-main-sub-categories";
 import type { ExpressionOfInterestRow, EoiStatus } from "@/types/eoi";
 
 const STATUS_OPTIONS: EoiStatus[] = [
@@ -11,6 +14,51 @@ const STATUS_OPTIONS: EoiStatus[] = [
   "declined",
   "registered",
 ];
+
+function eoiCategorySelectionsFromRow(row: ExpressionOfInterestRow): CategorySelection[] {
+  const raw = row.category_selections;
+  if (Array.isArray(raw)) {
+    const tuples: CategorySelection[] = [];
+    for (const item of raw) {
+      if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        const main = typeof o.main === "string" ? o.main : "";
+        const sub = typeof o.sub === "string" ? o.sub : "";
+        tuples.push({ main, sub });
+      }
+    }
+    const n = normalizeCategorySelections(tuples);
+    if (n.length > 0) return n;
+  }
+  const m = row.main_category?.trim() ?? "";
+  const s = row.primary_category?.trim() ?? "";
+  if (m && s) return [{ main: m, sub: s }];
+  if (s) return [{ main: "", sub: s }];
+  return [];
+}
+
+function selectionsSearchBlob(selections: CategorySelection[]): string {
+  return selections.map((x) => `${x.main} ${x.sub}`).join(" ").toLowerCase();
+}
+
+function formatSelectionsList(selections: CategorySelection[]): ReactNode {
+  if (!selections.length) return "—";
+  return (
+    <ul className="list-inside list-disc space-y-1 text-sm">
+      {selections.map((sel) => (
+        <li key={`${sel.main}\u0000${sel.sub}`}>
+          {sel.main ? (
+            <>
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">{sel.main}</span>
+              <span className="text-zinc-500"> — </span>
+            </>
+          ) : null}
+          <span>{sel.sub}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function formatDateTime(iso: string | null | undefined): string {
   if (iso == null || iso === "") return "—";
@@ -146,8 +194,7 @@ function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClos
 
           <SectionTitle>Programme &amp; capability</SectionTitle>
           <dl>
-            <DetailRow label="Main category (broad industry)">{row.main_category ?? "—"}</DetailRow>
-            <DetailRow label="Sub category (vendor type)">{row.primary_category}</DetailRow>
+            <DetailRow label="Categories (main &amp; sub)">{formatSelectionsList(eoiCategorySelectionsFromRow(row))}</DetailRow>
             <DetailRow label="Departments served (legacy)">{formatJsonList(row.departments_served)}</DetailRow>
             <DetailRow label="Zones / coverage">{formatJsonList(row.zones)}</DetailRow>
             <DetailRow label="Can work in programme area">{row.can_work_in_programme_location ?? "—"}</DetailRow>
@@ -195,6 +242,8 @@ export function EoiAdminPanel({
     const qDigits = filter.replace(/\D/g, "");
     if (!q) return submissions;
     return submissions.filter((s) => {
+      const cats = eoiCategorySelectionsFromRow(s);
+      const catBlob = selectionsSearchBlob(cats);
       const pan = (s.pan_number ?? "").toLowerCase();
       const mobile = (s.mobile ?? "").replace(/\D/g, "");
       const addr = (s.business_address ?? "").toLowerCase();
@@ -202,6 +251,7 @@ export function EoiAdminPanel({
         s.business_name.toLowerCase().includes(q) ||
         s.primary_category.toLowerCase().includes(q) ||
         (s.main_category ?? "").toLowerCase().includes(q) ||
+        catBlob.includes(q) ||
         s.email.toLowerCase().includes(q) ||
         s.reference_number.toLowerCase().includes(q) ||
         pan.includes(q) ||
@@ -278,7 +328,7 @@ export function EoiAdminPanel({
               <th className="px-2 py-2">Submitted</th>
               <th className="px-2 py-2">Last updated</th>
               <th className="px-2 py-2">Business</th>
-              <th className="px-2 py-2">Main / sub</th>
+              <th className="px-2 py-2">Categories</th>
               <th className="px-2 py-2">Email</th>
               <th className="px-2 py-2">ITS</th>
               <th className="px-2 py-2">Status</th>
@@ -287,7 +337,10 @@ export function EoiAdminPanel({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((s) => (
+            {filtered.map((s) => {
+              const catSel = eoiCategorySelectionsFromRow(s);
+              const catTitle = catSel.map((x) => (x.main ? `${x.main} — ${x.sub}` : x.sub)).join(" | ");
+              return (
               <tr key={s.id} className="border-t border-amber-100 dark:border-amber-900/40">
                 <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">{s.reference_number}</td>
                 <td className="whitespace-nowrap px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
@@ -298,20 +351,27 @@ export function EoiAdminPanel({
                 </td>
                 <td className="max-w-[180px] truncate px-2 py-2 font-medium">{s.business_name}</td>
                 <td
-                  className="max-w-[200px] truncate px-2 py-2 text-xs"
-                  title={
-                    s.main_category
-                      ? `${s.main_category} — ${s.primary_category}`
-                      : s.primary_category
-                  }
+                  className="max-w-[220px] truncate px-2 py-2 text-xs"
+                  title={catTitle || undefined}
                 >
-                  {s.main_category ? (
+                  {catSel.length === 0 ? (
+                    "—"
+                  ) : catSel.length === 1 ? (
                     <>
-                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{s.main_category}</span>
-                      <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+                      {catSel[0].main ? (
+                        <>
+                          <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel[0].main}</span>
+                          <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+                        </>
+                      ) : null}
+                      <span>{catSel[0].sub}</span>
                     </>
-                  ) : null}
-                  <span>{s.primary_category}</span>
+                  ) : (
+                    <>
+                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel.length} selections</span>
+                      <span className="block truncate text-zinc-500 dark:text-zinc-400">{catSel[0].sub}</span>
+                    </>
+                  )}
                 </td>
                 <td className="max-w-[180px] truncate px-2 py-2 text-xs">{s.email}</td>
                 <td className="whitespace-nowrap px-2 py-2 font-mono text-xs tabular-nums">{s.its_number ?? "—"}</td>
@@ -363,7 +423,8 @@ export function EoiAdminPanel({
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {filtered.length === 0 ? <p className="p-4 text-center text-sm text-zinc-500">No submissions match.</p> : null}

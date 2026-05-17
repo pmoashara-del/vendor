@@ -59,3 +59,50 @@ export function isValidMainSubPair(main: string, sub: string): boolean {
 export function isKnownMainCategory(main: string): boolean {
   return Object.prototype.hasOwnProperty.call(EOI_MAIN_TO_SUB, main);
 }
+
+/** One broad industry (main) paired with one vendor type (sub). */
+export type CategorySelection = Readonly<{ main: string; sub: string }>;
+
+function selectionKey(main: string, sub: string): string {
+  return `${main}\u0000${sub}`;
+}
+
+/** Trim, drop empties, dedupe by (main, sub), preserve first-seen order. */
+export function normalizeCategorySelections(selections: readonly CategorySelection[]): CategorySelection[] {
+  const seen = new Set<string>();
+  const out: CategorySelection[] = [];
+  for (const row of selections) {
+    const main = String(row.main ?? "").trim();
+    const sub = String(row.sub ?? "").trim();
+    if (!main || !sub) continue;
+    const k = selectionKey(main, sub);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ main, sub });
+  }
+  return out;
+}
+
+/** True when there is at least one pair and every pair is a valid main→sub mapping. */
+export function isValidCategorySelectionsList(selections: readonly CategorySelection[]): boolean {
+  const n = normalizeCategorySelections(selections);
+  if (n.length === 0) return false;
+  return n.every((s) => isValidMainSubPair(s.main, s.sub));
+}
+
+/** Unique mains in first-seen order (for legacy `main_category` column). */
+export function legacyMainCategoriesSummary(selections: readonly CategorySelection[]): string {
+  const n = normalizeCategorySelections(selections);
+  const mains: string[] = [];
+  for (const s of n) {
+    if (!mains.includes(s.main)) mains.push(s.main);
+  }
+  return mains.join(" · ");
+}
+
+/** Human-readable list of pairs (for legacy `primary_category` / `sub_category` columns). */
+export function legacyCategoryPairsSummary(selections: readonly CategorySelection[]): string {
+  return normalizeCategorySelections(selections)
+    .map((s) => `${s.main} — ${s.sub}`)
+    .join(" | ");
+}

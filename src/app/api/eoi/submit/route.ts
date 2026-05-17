@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
+import {
+  legacyCategoryPairsSummary,
+  legacyMainCategoriesSummary,
+} from "@/lib/eoi/eoi-main-sub-categories";
 import { eoiSubmitSchema } from "@/lib/schemas/eoi";
 import { sendEoiSubmittedEmail } from "@/lib/email/resend-notifications";
 import { createServiceSupabase } from "@/lib/supabase/service";
@@ -42,8 +46,9 @@ export async function POST(req: Request) {
     its_number: p.its_number,
     mobile: mobileDigits,
     email: p.email.trim().toLowerCase(),
-    main_category: p.main_category.trim(),
-    primary_category: p.primary_category.trim(),
+    main_category: legacyMainCategoriesSummary(p.category_selections),
+    primary_category: legacyCategoryPairsSummary(p.category_selections),
+    category_selections: p.category_selections,
     departments_served: p.departments_served,
     zones: p.zones,
     can_work_in_programme_location: p.can_work_in_programme_location,
