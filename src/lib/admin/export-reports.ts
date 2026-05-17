@@ -11,14 +11,18 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function downloadTextOrBinary(content: string | Uint8Array, filename: string, mime: string) {
+function toDownloadBlobPart(content: ArrayBuffer | Uint8Array): Uint8Array {
+  if (content instanceof ArrayBuffer) return new Uint8Array(content);
+  const next = new Uint8Array(content.byteLength);
+  next.set(content);
+  return next;
+}
+
+function downloadTextOrBinary(content: string | ArrayBuffer | Uint8Array, filename: string, mime: string) {
   const blob =
     typeof content === "string"
       ? new Blob(["\ufeff", content], { type: `${mime};charset=utf-8` })
-      : new Blob(
-          [content.buffer.slice(content.byteOffset, content.byteOffset + content.byteLength) as ArrayBuffer],
-          { type: mime },
-        );
+      : new Blob([toDownloadBlobPart(content) as BlobPart], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -27,7 +31,8 @@ function downloadTextOrBinary(content: string | Uint8Array, filename: string, mi
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Revoke after a tick so the browser can start reading the blob URL (sync revoke can cancel downloads).
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
 /** Human-readable workflow / actions from persisted EOI fields (no separate audit log). */
@@ -174,13 +179,13 @@ export function exportEoiListToXlsx(rows: ExpressionOfInterestRow[], filename: s
       registration_token_used_at: row.registration_token_used_at ?? "",
       registration_token_expires_at: row.registration_token_expires_at ?? "",
       vendor_registration_id: row.vendor_registration_id ?? "",
-      capability_excerpt: row.capability_description.slice(0, 500),
+      capability_excerpt: (row.capability_description ?? "").slice(0, 500),
     };
   });
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "EOI");
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as Uint8Array;
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   downloadTextOrBinary(out, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 }
 
@@ -203,11 +208,11 @@ export function exportVendorListToXlsx(rows: VendorRegistrationRow[], filename: 
     pan_number: v.pan_number,
     its_number: v.its_number ?? "",
     eoi_id: v.eoi_id ?? "",
-    products_excerpt: v.products_services_offered.slice(0, 400),
+    products_excerpt: (v.products_services_offered ?? "").slice(0, 400),
   }));
   const ws = XLSX.utils.json_to_sheet(data);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Vendors");
-  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as Uint8Array;
+  const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   downloadTextOrBinary(out, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 }
