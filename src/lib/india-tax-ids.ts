@@ -21,11 +21,16 @@ export function gstinBelongsToPAN(gstin: string, pan: string): boolean {
   return extractPANFromGSTIN(gstin) === pan.toUpperCase();
 }
 
+/** First 12 characters of a GSTIN: state code (2) + PAN (10). The final three characters are entered separately. */
+export function buildGstinPrefix(pan: string, stateCode: number | string): string {
+  const state = String(stateCode).padStart(2, "0");
+  return `${state}${pan.toUpperCase().replace(/\s/g, "")}`;
+}
+
 /**
  * Builds a 15-character GSTIN from PAN + state + entity serial.
  * Checksum position uses a placeholder — replace with official checksum for production if required.
  */
 export function buildGSTIN(pan: string, stateCode: number | string, entityNo: number | string = 1): string {
-  const state = String(stateCode).padStart(2, "0");
-  return `${state}${pan.toUpperCase()}${entityNo}Z5`;
+  return `${buildGstinPrefix(pan, stateCode)}${entityNo}Z5`;
 }
