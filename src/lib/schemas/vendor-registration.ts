@@ -196,7 +196,7 @@ export const vendorRegistrationPayloadSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["service_location_indore"],
-        message: "Supply in Indore and Madhya Pradesh is required for this programme",
+        message: "Confirm supply in both Indore and Madhya Pradesh for this programme, or select PAN India.",
       });
     }
     if (!isValidCategorySelectionsList(data.category_selections)) {
