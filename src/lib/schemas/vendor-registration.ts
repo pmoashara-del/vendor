@@ -114,6 +114,7 @@ export const vendorRegistrationPayloadSchema = z
     service_location_pan_india: z.boolean(),
     service_location_madhya_pradesh: z.boolean(),
     service_location_indore: z.boolean(),
+    additional_service_locations: z.preprocess(emptyToNull, z.string().max(2000).nullable()),
     turnover_fy_2023_24: optionalMoneySchema,
     turnover_fy_2024_25: optionalMoneySchema,
     turnover_fy_2025_26: optionalMoneySchema,
@@ -176,6 +177,13 @@ export const vendorRegistrationPayloadSchema = z
         code: z.ZodIssueCode.custom,
         path: ["doc_other_description"],
         message: "Describe other documents when selected",
+      });
+    }
+    if (!data.service_location_indore || !data.service_location_madhya_pradesh) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["service_location_indore"],
+        message: "Supply in Indore and Madhya Pradesh is required for this programme",
       });
     }
   });

@@ -40,10 +40,10 @@ interface FormState {
   main_category: string;
   sub_category: string;
   products_services_offered: string;
-  service_location_other: boolean;
   service_location_pan_india: boolean;
   service_location_madhya_pradesh: boolean;
   service_location_indore: boolean;
+  additional_service_locations: string;
   turnover_fy_2023_24: string;
   turnover_fy_2024_25: string;
   turnover_fy_2025_26: string;
@@ -100,10 +100,10 @@ const initial: FormState = {
   main_category: "",
   sub_category: "",
   products_services_offered: "",
-  service_location_other: false,
   service_location_pan_india: false,
-  service_location_madhya_pradesh: false,
-  service_location_indore: false,
+  service_location_madhya_pradesh: true,
+  service_location_indore: true,
+  additional_service_locations: "",
   turnover_fy_2023_24: "",
   turnover_fy_2024_25: "",
   turnover_fy_2025_26: "",
@@ -188,11 +188,12 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     }));
   }
 
-  function onMp(v: boolean) {
+  function setIndoreMadhyaCoverage(v: boolean) {
     setF((p) => ({
       ...p,
+      service_location_indore: v,
       service_location_madhya_pradesh: v,
-      service_location_indore: v ? true : p.service_location_indore,
+      service_location_pan_india: v ? p.service_location_pan_india : false,
     }));
   }
 
@@ -263,6 +264,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     setBusy(true);
     setMsg(null);
     try {
+      const extra = f.additional_service_locations.trim();
       const body = {
         ...f,
         its_number: itsNumber.trim() ? itsNumber.replace(/\D/g, "") : null,
@@ -271,6 +273,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
           f.aadhaar_linked_with_pan === "yes" || f.aadhaar_linked_with_pan === "no"
             ? f.aadhaar_linked_with_pan
             : "unknown",
+        service_location_other: extra.length > 0,
+        additional_service_locations: extra.length > 0 ? extra : null,
       };
 
       const res = await fetch("/api/vendors/register", {
@@ -709,40 +713,61 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             onChange={(e) => set("products_services_offered", e.target.value)}
           />
         </div>
-        <div className="sm:col-span-2 space-y-2">
-          <span className={labelClass()}>Service locations</span>
-          <label className="flex items-center gap-2 text-sm">
+        <div className="sm:col-span-2 rounded-lg border border-zinc-200 bg-zinc-50/90 p-4 dark:border-zinc-600 dark:bg-zinc-900/50">
+          <p className="mb-3 text-center text-[11px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
+            Geographic coverage
+          </p>
+          <label className={labelClass()}>Cities / areas you can operate in *</label>
+          <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+            All vendors for this programme must be able to supply in <strong>Indore, Madhya Pradesh</strong>. Use the
+            optional field below to list any further cities, districts, or regions you can also serve.
+          </p>
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-600 dark:bg-zinc-950">
             <input
               type="checkbox"
-              checked={f.service_location_other}
-              onChange={(e) => set("service_location_other", e.target.checked)}
+              required
+              className="mt-0.5 accent-emerald-600"
+              checked={f.service_location_indore && f.service_location_madhya_pradesh}
+              disabled={f.service_location_pan_india}
+              onChange={(e) => setIndoreMadhyaCoverage(e.target.checked)}
             />
-            Other locations
+            <span>
+              <span className="font-semibold text-zinc-900 dark:text-zinc-50">Indore, Madhya Pradesh</span>
+              <span className="mt-0.5 block text-xs font-normal text-zinc-600 dark:text-zinc-400">
+                {f.service_location_pan_india
+                  ? "Included because you selected PAN India below."
+                  : "Required — I / we can supply goods or services for this programme in Indore and across Madhya Pradesh."}
+              </span>
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm">
+          <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
+              className="accent-emerald-600"
               checked={f.service_location_pan_india}
               onChange={(e) => onPanIndia(e.target.checked)}
             />
-            PAN India (auto-selects Madhya Pradesh and Indore)
+            <span>
+              <span className="font-medium">PAN India</span>
+              <span className="text-zinc-600 dark:text-zinc-400"> — also serve locations across India (includes Indore &amp; MP)</span>
+            </span>
           </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={f.service_location_madhya_pradesh}
-              onChange={(e) => onMp(e.target.checked)}
+          <div className="mt-4">
+            <label className={labelClass()}>Other cities or areas you can supply (optional)</label>
+            <p className="mb-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+              List any extra towns, districts, states, or regions (one per line or comma-separated). Leave blank if
+              only Indore / MP (or PAN India) applies.
+            </p>
+            <textarea
+              rows={3}
+              maxLength={2000}
+              className={inputClass()}
+              value={f.additional_service_locations}
+              onChange={(e) => set("additional_service_locations", e.target.value)}
+              placeholder="e.g. Bhopal, Ujjain, Dewas; or Maharashtra for specific categories only"
             />
-            Madhya Pradesh (auto-selects Indore)
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={f.service_location_indore}
-              onChange={(e) => set("service_location_indore", e.target.checked)}
-            />
-            Indore
-          </label>
+            <p className="mt-0.5 text-right text-[11px] text-zinc-400">{f.additional_service_locations.length}/2000</p>
+          </div>
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Annual turnover — last three years</label>
