@@ -2,8 +2,16 @@
 
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
-import { normalizeCategorySelections } from "@/lib/eoi/eoi-main-sub-categories";
+import {
+  downloadEoiAdminDoc,
+  exportEoiListToXlsx,
+  eoiWorkflowActionsSummary,
+} from "@/lib/admin/export-reports";
+import {
+  eoiCategorySelectionsFromRow,
+  eoiCategorySummaryLine,
+  selectionsSearchBlob,
+} from "@/lib/eoi/eoi-row-display";
 import type { ExpressionOfInterestRow, EoiStatus } from "@/types/eoi";
 
 const STATUS_OPTIONS: EoiStatus[] = [
@@ -15,33 +23,7 @@ const STATUS_OPTIONS: EoiStatus[] = [
   "registered",
 ];
 
-function eoiCategorySelectionsFromRow(row: ExpressionOfInterestRow): CategorySelection[] {
-  const raw = row.category_selections;
-  if (Array.isArray(raw)) {
-    const tuples: CategorySelection[] = [];
-    for (const item of raw) {
-      if (item && typeof item === "object") {
-        const o = item as Record<string, unknown>;
-        const main = typeof o.main === "string" ? o.main : "";
-        const sub = typeof o.sub === "string" ? o.sub : "";
-        tuples.push({ main, sub });
-      }
-    }
-    const n = normalizeCategorySelections(tuples);
-    if (n.length > 0) return n;
-  }
-  const m = row.main_category?.trim() ?? "";
-  const s = row.primary_category?.trim() ?? "";
-  if (m && s) return [{ main: m, sub: s }];
-  if (s) return [{ main: "", sub: s }];
-  return [];
-}
-
-function selectionsSearchBlob(selections: CategorySelection[]): string {
-  return selections.map((x) => `${x.main} ${x.sub}`).join(" ").toLowerCase();
-}
-
-function formatSelectionsList(selections: CategorySelection[]): ReactNode {
+function formatSelectionsList(selections: ReturnType<typeof eoiCategorySelectionsFromRow>): ReactNode {
   if (!selections.length) return "—";
   return (
     <ul className="list-inside list-disc space-y-1 text-sm">
@@ -101,6 +83,62 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+const emptyEoiFilters = {
+  ref: "",
+  submitted: "",
+  updated: "",
+  business: "",
+  categories: "",
+  email: "",
+  its: "",
+  status: "" as "" | EoiStatus,
+  details: "",
+  actions: "",
+};
+
+type EoiColFilters = typeof emptyEoiFilters;
+
+function filterInputClass() {
+  return "w-full min-w-0 rounded border border-amber-200/90 bg-white px-1.5 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-400 dark:border-amber-800 dark:bg-zinc-950 dark:text-zinc-100";
+}
+
+function eoiRowMatchesFilters(s: ExpressionOfInterestRow, f: EoiColFilters): boolean {
+  const q = (x: string) => x.trim().toLowerCase();
+  const inc = (hay: string | null | undefined, needle: string) => {
+    const n = q(needle);
+    if (!n) return true;
+    return (hay ?? "").toLowerCase().includes(n);
+  };
+  if (!inc(s.reference_number, f.ref)) return false;
+  const subFmt = formatDateTime(s.created_at).toLowerCase();
+  if (!inc(s.created_at, f.submitted) && !inc(subFmt, f.submitted)) return false;
+  const updFmt = formatDateTime(s.updated_at).toLowerCase();
+  if (!inc(s.updated_at, f.updated) && !inc(updFmt, f.updated)) return false;
+  if (!inc(s.business_name, f.business)) return false;
+  const cats = eoiCategorySelectionsFromRow(s);
+  const catBlob = selectionsSearchBlob(cats);
+  const catLine = eoiCategorySummaryLine(s).toLowerCase();
+  if (!inc(catBlob, f.categories) && !inc(catLine, f.categories)) return false;
+  if (!inc(s.email, f.email)) return false;
+  const its = (s.its_number ?? "").replace(/\D/g, "");
+  const itsQ = f.its.replace(/\D/g, "");
+  if (itsQ && !its.includes(itsQ)) return false;
+  if (f.its.trim() && !itsQ && !inc(s.its_number, f.its)) return false;
+  if (f.status && s.eoi_status !== f.status) return false;
+  if (f.details.trim()) {
+    const blob = `${s.id} ${eoiWorkflowActionsSummary(s)}`.toLowerCase();
+    if (!blob.includes(f.details.trim().toLowerCase())) return false;
+  }
+  if (f.actions.trim()) {
+    const blob = [s.meeting_invite_sent_at, s.registration_token_used_at, s.vendor_registration_id]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    if (!blob.includes(f.actions.trim().toLowerCase())) return false;
+  }
+  return true;
+}
+
 function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClose: () => void }) {
   useEffect(() => {
     function onKey(ev: KeyboardEvent) {
@@ -134,15 +172,29 @@ function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClos
               Full submission record · Status: <span className="font-medium capitalize">{statusLabel}</span>
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-          >
-            Close
-          </button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => downloadEoiAdminDoc(row)}
+              className="rounded-lg border border-amber-600 bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+            >
+              Download .doc
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+            >
+              Close
+            </button>
+          </div>
         </div>
         <div className="overflow-y-auto px-5 pb-6" style={{ maxHeight: "min(calc(90vh - 5rem), 42rem)" }}>
+          <SectionTitle>Workflow summary (for exports)</SectionTitle>
+          <p className="mt-2 whitespace-pre-wrap rounded border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
+            {eoiWorkflowActionsSummary(row)}
+          </p>
+
           <SectionTitle>Record &amp; timestamps</SectionTitle>
           <dl>
             <DetailRow label="Internal ID">{row.id}</DetailRow>
@@ -194,7 +246,9 @@ function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClos
 
           <SectionTitle>Programme &amp; capability</SectionTitle>
           <dl>
-            <DetailRow label="Categories (main &amp; sub)">{formatSelectionsList(eoiCategorySelectionsFromRow(row))}</DetailRow>
+            <DetailRow label="Categories (main &amp; sub)">
+              {formatSelectionsList(eoiCategorySelectionsFromRow(row))}
+            </DetailRow>
             <DetailRow label="Departments served (legacy)">{formatJsonList(row.departments_served)}</DetailRow>
             <DetailRow label="Zones / coverage">{formatJsonList(row.zones)}</DetailRow>
             <DetailRow label="Can work in programme area">{row.can_work_in_programme_location ?? "—"}</DetailRow>
@@ -235,36 +289,15 @@ export function EoiAdminPanel({
   submissions: ExpressionOfInterestRow[];
   onRefresh: () => Promise<void>;
 }) {
-  const [filter, setFilter] = useState("");
+  const [colFilters, setColFilters] = useState<EoiColFilters>(emptyEoiFilters);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const closeDetail = useCallback(() => setDetailId(null), []);
 
   const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    const qDigits = filter.replace(/\D/g, "");
-    if (!q) return submissions;
-    return submissions.filter((s) => {
-      const cats = eoiCategorySelectionsFromRow(s);
-      const catBlob = selectionsSearchBlob(cats);
-      const pan = (s.pan_number ?? "").toLowerCase();
-      const mobile = (s.mobile ?? "").replace(/\D/g, "");
-      const addr = (s.business_address ?? "").toLowerCase();
-      return (
-        s.business_name.toLowerCase().includes(q) ||
-        s.primary_category.toLowerCase().includes(q) ||
-        (s.main_category ?? "").toLowerCase().includes(q) ||
-        catBlob.includes(q) ||
-        s.email.toLowerCase().includes(q) ||
-        s.reference_number.toLowerCase().includes(q) ||
-        pan.includes(q) ||
-        addr.includes(q) ||
-        (s.other_supply_locations_detail ?? "").toLowerCase().includes(q) ||
-        (qDigits.length > 0 && (mobile.includes(qDigits) || !!s.its_number?.includes(qDigits)))
-      );
-    });
-  }, [submissions, filter]);
+    return submissions.filter((s) => eoiRowMatchesFilters(s, colFilters));
+  }, [submissions, colFilters]);
 
   const detailRow = detailId ? (submissions.find((s) => s.id === detailId) ?? null) : null;
 
@@ -303,10 +336,15 @@ export function EoiAdminPanel({
     await onRefresh();
   }
 
+  function exportExcel() {
+    const stamp = new Date().toISOString().slice(0, 10);
+    exportEoiListToXlsx(filtered, `EOI-export-${stamp}.xlsx`);
+  }
+
   return (
     <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 dark:border-amber-900/40 dark:bg-amber-950/20">
       {detailRow ? <EoiDetailModal row={detailRow} onClose={closeDetail} /> : null}
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-amber-950 dark:text-amber-100">Expression of Interest (EOI)</h2>
           <p className="mt-1 max-w-2xl text-sm text-amber-900/90 dark:text-amber-200/80">
@@ -314,19 +352,33 @@ export function EoiAdminPanel({
             send the <strong>full registration</strong> link. Flow: EOI → shortlist → meeting invite → registration
             invite → vendor completes form on <code className="text-xs">/vendor-registration?token=…</code>
           </p>
+          <p className="mt-2 text-xs text-amber-800/90 dark:text-amber-300/90">
+            Use the filter row under the column headers. Excel export includes a <strong>workflow_actions_summary</strong>{" "}
+            column derived from status, invite timestamps, and registration linkage. Row count:{" "}
+            <strong>{filtered.length}</strong> of {submissions.length}.
+          </p>
         </div>
-        <input
-          type="search"
-          placeholder="Filter: name, category, email, ref, PAN, mobile, address…"
-          className="w-full max-w-xs rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm dark:border-amber-800 dark:bg-zinc-950"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-        />
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={exportExcel}
+            className="rounded-lg border border-emerald-700 bg-emerald-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
+          >
+            Export Excel (.xlsx)
+          </button>
+          <button
+            type="button"
+            onClick={() => setColFilters({ ...emptyEoiFilters })}
+            className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-zinc-900 dark:text-amber-100 dark:hover:bg-zinc-800"
+          >
+            Clear column filters
+          </button>
+        </div>
       </div>
       {msg ? <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">{msg}</p> : null}
 
       <div className="overflow-x-auto rounded-lg border border-amber-200/80 bg-white dark:border-amber-900/50 dark:bg-zinc-900">
-        <table className="min-w-[1280px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[1320px] w-full border-collapse text-left text-sm">
           <thead className="bg-amber-100/80 text-xs font-semibold uppercase text-amber-950 dark:bg-amber-950/50 dark:text-amber-100">
             <tr>
               <th className="px-2 py-2">Ref</th>
@@ -340,94 +392,198 @@ export function EoiAdminPanel({
               <th className="px-2 py-2">Details</th>
               <th className="px-2 py-2">Actions</th>
             </tr>
+            <tr className="border-t border-amber-200/60 bg-amber-50/90 dark:border-amber-800/60 dark:bg-amber-950/30">
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.ref}
+                  onChange={(e) => setColFilters((f) => ({ ...f, ref: e.target.value }))}
+                  placeholder="Contains…"
+                  aria-label="Filter by reference"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.submitted}
+                  onChange={(e) => setColFilters((f) => ({ ...f, submitted: e.target.value }))}
+                  placeholder="Date text…"
+                  aria-label="Filter by submitted date"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.updated}
+                  onChange={(e) => setColFilters((f) => ({ ...f, updated: e.target.value }))}
+                  placeholder="Date text…"
+                  aria-label="Filter by last updated"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.business}
+                  onChange={(e) => setColFilters((f) => ({ ...f, business: e.target.value }))}
+                  placeholder="Contains…"
+                  aria-label="Filter by business name"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.categories}
+                  onChange={(e) => setColFilters((f) => ({ ...f, categories: e.target.value }))}
+                  placeholder="Category text…"
+                  aria-label="Filter by categories"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.email}
+                  onChange={(e) => setColFilters((f) => ({ ...f, email: e.target.value }))}
+                  placeholder="Contains…"
+                  aria-label="Filter by email"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.its}
+                  onChange={(e) => setColFilters((f) => ({ ...f, its: e.target.value }))}
+                  placeholder="Digits…"
+                  aria-label="Filter by ITS number"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <select
+                  className={filterInputClass()}
+                  value={colFilters.status}
+                  onChange={(e) =>
+                    setColFilters((f) => ({ ...f, status: e.target.value as EoiColFilters["status"] }))
+                  }
+                  aria-label="Filter by status"
+                >
+                  <option value="">All statuses</option>
+                  {STATUS_OPTIONS.map((st) => (
+                    <option key={st} value={st}>
+                      {st.replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.details}
+                  onChange={(e) => setColFilters((f) => ({ ...f, details: e.target.value }))}
+                  placeholder="Id / workflow…"
+                  aria-label="Filter details column"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <input
+                  className={filterInputClass()}
+                  value={colFilters.actions}
+                  onChange={(e) => setColFilters((f) => ({ ...f, actions: e.target.value }))}
+                  placeholder="Invite / reg…"
+                  aria-label="Filter actions column"
+                />
+              </th>
+            </tr>
           </thead>
           <tbody>
             {filtered.map((s) => {
               const catSel = eoiCategorySelectionsFromRow(s);
               const catTitle = catSel.map((x) => (x.main ? `${x.main} — ${x.sub}` : x.sub)).join(" | ");
               return (
-              <tr key={s.id} className="border-t border-amber-100 dark:border-amber-900/40">
-                <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">{s.reference_number}</td>
-                <td className="whitespace-nowrap px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  {formatDateTime(s.created_at)}
-                </td>
-                <td className="whitespace-nowrap px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  {formatDateTime(s.updated_at)}
-                </td>
-                <td className="max-w-[180px] truncate px-2 py-2 font-medium">{s.business_name}</td>
-                <td
-                  className="max-w-[220px] truncate px-2 py-2 text-xs"
-                  title={catTitle || undefined}
-                >
-                  {catSel.length === 0 ? (
-                    "—"
-                  ) : catSel.length === 1 ? (
-                    <>
-                      {catSel[0].main ? (
-                        <>
-                          <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel[0].main}</span>
-                          <span className="text-zinc-500 dark:text-zinc-400"> · </span>
-                        </>
-                      ) : null}
-                      <span>{catSel[0].sub}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel.length} selections</span>
-                      <span className="block truncate text-zinc-500 dark:text-zinc-400">{catSel[0].sub}</span>
-                    </>
-                  )}
-                </td>
-                <td className="max-w-[180px] truncate px-2 py-2 text-xs">{s.email}</td>
-                <td className="whitespace-nowrap px-2 py-2 font-mono text-xs tabular-nums">{s.its_number ?? "—"}</td>
-                <td className="px-2 py-2">
-                  <select
-                    className="max-w-[11rem] rounded border border-zinc-300 bg-white px-1 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
-                    value={s.eoi_status}
-                    disabled={busyId === s.id}
-                    onChange={(e) => void patchStatus(s.id, e.target.value as EoiStatus)}
-                  >
-                    {STATUS_OPTIONS.map((st) => (
-                      <option key={st} value={st}>
-                        {st.replaceAll("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-2 py-2">
-                  <button
-                    type="button"
-                    onClick={() => setDetailId(s.id)}
-                    className="rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
-                  >
-                    View full
-                  </button>
-                </td>
-                <td className="space-y-1 px-2 py-2">
-                  <button
-                    type="button"
-                    disabled={busyId === s.id || s.eoi_status === "declined" || s.eoi_status === "registered"}
-                    onClick={() => void meetingInvite(s.id)}
-                    className="mr-1 block w-full rounded bg-amber-700 px-2 py-1 text-left text-[11px] font-semibold text-white hover:bg-amber-800 disabled:opacity-40 sm:inline-block sm:w-auto"
-                  >
-                    Email: table session
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      busyId === s.id ||
-                      s.eoi_status === "declined" ||
-                      s.eoi_status === "registered" ||
-                      (s.eoi_status !== "meeting_invited" && s.eoi_status !== "invited_to_register") ||
-                      Boolean(s.registration_token_used_at)
-                    }
-                    onClick={() => void registrationInvite(s.id)}
-                    className="block w-full rounded bg-emerald-700 px-2 py-1 text-left text-[11px] font-semibold text-white hover:bg-emerald-800 disabled:opacity-40 sm:inline-block sm:w-auto"
-                  >
-                    Email: full registration link
-                  </button>
-                </td>
-              </tr>
+                <tr key={s.id} className="border-t border-amber-100 dark:border-amber-900/40">
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">{s.reference_number}</td>
+                  <td className="whitespace-nowrap px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    {formatDateTime(s.created_at)}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2 text-xs text-zinc-600 dark:text-zinc-400">
+                    {formatDateTime(s.updated_at)}
+                  </td>
+                  <td className="max-w-[180px] truncate px-2 py-2 font-medium">{s.business_name}</td>
+                  <td className="max-w-[220px] truncate px-2 py-2 text-xs" title={catTitle || undefined}>
+                    {catSel.length === 0 ? (
+                      "—"
+                    ) : catSel.length === 1 ? (
+                      <>
+                        {catSel[0].main ? (
+                          <>
+                            <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel[0].main}</span>
+                            <span className="text-zinc-500 dark:text-zinc-400"> · </span>
+                          </>
+                        ) : null}
+                        <span>{catSel[0].sub}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-medium text-zinc-800 dark:text-zinc-200">{catSel.length} selections</span>
+                        <span className="block truncate text-zinc-500 dark:text-zinc-400">{catSel[0].sub}</span>
+                      </>
+                    )}
+                  </td>
+                  <td className="max-w-[180px] truncate px-2 py-2 text-xs">{s.email}</td>
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs tabular-nums">{s.its_number ?? "—"}</td>
+                  <td className="px-2 py-2">
+                    <select
+                      className="max-w-[11rem] rounded border border-zinc-300 bg-white px-1 py-1 text-xs dark:border-zinc-600 dark:bg-zinc-950"
+                      value={s.eoi_status}
+                      disabled={busyId === s.id}
+                      onChange={(e) => void patchStatus(s.id, e.target.value as EoiStatus)}
+                    >
+                      {STATUS_OPTIONS.map((st) => (
+                        <option key={st} value={st}>
+                          {st.replaceAll("_", " ")}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="space-y-1 px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setDetailId(s.id)}
+                      className="mb-1 block w-full rounded border border-zinc-300 bg-zinc-50 px-2 py-1 text-center text-[11px] font-semibold text-zinc-800 hover:bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 sm:mb-0 sm:mr-1 sm:inline-block sm:w-auto"
+                    >
+                      View full
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadEoiAdminDoc(s)}
+                      className="block w-full rounded border border-amber-700 bg-amber-50 px-2 py-1 text-center text-[11px] font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-600 dark:bg-amber-950/40 dark:text-amber-100 dark:hover:bg-amber-900/50 sm:inline-block sm:w-auto"
+                    >
+                      .doc report
+                    </button>
+                  </td>
+                  <td className="space-y-1 px-2 py-2">
+                    <button
+                      type="button"
+                      disabled={busyId === s.id || s.eoi_status === "declined" || s.eoi_status === "registered"}
+                      onClick={() => void meetingInvite(s.id)}
+                      className="mr-1 block w-full rounded bg-amber-700 px-2 py-1 text-left text-[11px] font-semibold text-white hover:bg-amber-800 disabled:opacity-40 sm:inline-block sm:w-auto"
+                    >
+                      Email: table session
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        busyId === s.id ||
+                        s.eoi_status === "declined" ||
+                        s.eoi_status === "registered" ||
+                        (s.eoi_status !== "meeting_invited" && s.eoi_status !== "invited_to_register") ||
+                        Boolean(s.registration_token_used_at)
+                      }
+                      onClick={() => void registrationInvite(s.id)}
+                      className="block w-full rounded bg-emerald-700 px-2 py-1 text-left text-[11px] font-semibold text-white hover:bg-emerald-800 disabled:opacity-40 sm:inline-block sm:w-auto"
+                    >
+                      Email: full registration link
+                    </button>
+                  </td>
+                </tr>
               );
             })}
           </tbody>

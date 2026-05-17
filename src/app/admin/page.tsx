@@ -3,17 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EoiAdminPanel } from "@/components/admin/EoiAdminPanel";
+import { VendorAdminTable } from "@/components/admin/VendorAdminTable";
 import type { VendorPortfolioAnalysis } from "@/lib/ai/openai-analyze";
 import type { ExpressionOfInterestRow } from "@/types/eoi";
 import type { RegistrationStatus, VendorRegistrationRow } from "@/types/vendor";
-
-const STATUS_OPTIONS: RegistrationStatus[] = [
-  "pending",
-  "under_review",
-  "approved",
-  "rejected",
-  "on_hold",
-];
 
 interface Metrics {
   total: number;
@@ -346,73 +339,12 @@ export default function AdminPage() {
               <Breakdown title="By state" data={metrics.byState} />
             </section>
 
-            <section>
-              <h2 className="mb-3 text-lg font-semibold">Registered vendors</h2>
-              <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                <table className="min-w-[1120px] w-full border-collapse text-left text-sm">
-                  <thead className="bg-zinc-100 text-xs font-semibold uppercase text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                    <tr>
-                      <th className="px-3 py-2">Submitted</th>
-                      <th className="px-3 py-2">ITS</th>
-                      <th className="px-3 py-2">Company</th>
-                      <th className="px-3 py-2">Type</th>
-                      <th className="px-3 py-2">City</th>
-                      <th className="px-3 py-2">State</th>
-                      <th className="px-3 py-2">Contact</th>
-                      <th className="px-3 py-2">Email</th>
-                      <th className="px-3 py-2">GST</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">AI</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {vendors.map((v) => (
-                      <tr key={v.id} className="border-t border-zinc-100 dark:border-zinc-800">
-                        <td className="whitespace-nowrap px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400">
-                          {new Date(v.created_at).toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 tabular-nums text-zinc-600 dark:text-zinc-400">
-                          {v.its_number ?? "—"}
-                        </td>
-                        <td className="px-3 py-2 font-medium">{v.company_name}</td>
-                        <td className="px-3 py-2">{v.vendor_type}</td>
-                        <td className="px-3 py-2">{v.city}</td>
-                        <td className="px-3 py-2">{v.state}</td>
-                        <td className="px-3 py-2">{v.primary_contact_person}</td>
-                        <td className="px-3 py-2">{v.email}</td>
-                        <td className="px-3 py-2">{v.gst_registered ? "Yes" : "No"}</td>
-                        <td className="px-3 py-2">
-                          <select
-                            className="max-w-[9.5rem] rounded-md border border-zinc-300 bg-white px-1.5 py-1 text-xs capitalize dark:border-zinc-600 dark:bg-zinc-950"
-                            value={v.registration_status}
-                            disabled={statusSavingId === v.id}
-                            onChange={(e) => {
-                              void patchVendorStatus(v, e.target.value as RegistrationStatus);
-                            }}
-                            aria-label={`Status for ${v.company_name}`}
-                          >
-                            {STATUS_OPTIONS.map((s) => (
-                              <option key={s} value={s}>
-                                {s.replaceAll("_", " ")}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => void openVendorAi(v)}
-                            className="rounded-md border border-violet-300 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950/50 dark:text-violet-200 dark:hover:bg-violet-900/60"
-                          >
-                            Insight
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+            <VendorAdminTable
+              vendors={vendors}
+              onOpenVendorAi={openVendorAi}
+              statusSavingId={statusSavingId}
+              onPatchStatus={patchVendorStatus}
+            />
           </>
         ) : null}
       </main>
