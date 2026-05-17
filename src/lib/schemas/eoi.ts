@@ -48,6 +48,17 @@ const eoiSubmitSchemaBase = z.object({
   departments_served: z.array(z.string().max(100)).default([]),
   zones: z.array(z.string().max(100)),
   can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
+  also_supplies_other_locations: z.enum(["No", "Yes"]),
+  other_supply_locations_detail: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v == null) return null;
+      const t = String(v).trim();
+      return t === "" ? null : t;
+    })
+    .refine((s) => s === null || s.length <= 2000, {
+      message: "Other locations description must be at most 2000 characters",
+    }),
   experience_years: z.string().min(1).max(100),
   turnover_range: z.string().max(200).optional().nullable(),
   capability_description: z
@@ -119,6 +130,21 @@ export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
       code: z.ZodIssueCode.custom,
       message: "Coverage must match Indore / Madhya Pradesh work availability (Yes or Limited → programme area; No → none)",
       path: ["zones"],
+    });
+  }
+  if (data.also_supplies_other_locations === "Yes") {
+    if (data.other_supply_locations_detail == null || data.other_supply_locations_detail.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Describe the other states, cities, or regions where you supply",
+        path: ["other_supply_locations_detail"],
+      });
+    }
+  } else if (data.other_supply_locations_detail != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Leave other locations blank when you selected No",
+      path: ["other_supply_locations_detail"],
     });
   }
 });

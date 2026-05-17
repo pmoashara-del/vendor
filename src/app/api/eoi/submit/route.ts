@@ -52,6 +52,8 @@ export async function POST(req: Request) {
     departments_served: p.departments_served,
     zones: p.zones,
     can_work_in_programme_location: p.can_work_in_programme_location,
+    also_supplies_other_locations: p.also_supplies_other_locations,
+    other_supply_locations_detail: p.other_supply_locations_detail ?? null,
     experience_years: p.experience_years,
     turnover_range: p.turnover_range ?? null,
     capability_description: p.capability_description,

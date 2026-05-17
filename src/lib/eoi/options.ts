@@ -95,6 +95,15 @@ export const EOI_CAN_WORK_IN_LOCATION_LABELS: Record<EoiCanWorkInLocation, strin
   Limited: "Limited — only for certain assignments (give detail under capability)",
 };
 
+/** Whether the vendor supplies in other geographies for similar goods or services (EOI step 2). */
+export const EOI_ALSO_SUPPLIES_ELSEWHERE = ["No", "Yes"] as const;
+export type EoiAlsoSuppliesElsewhere = (typeof EOI_ALSO_SUPPLIES_ELSEWHERE)[number];
+
+export const EOI_ALSO_SUPPLIES_ELSEWHERE_LABELS: Record<EoiAlsoSuppliesElsewhere, string> = {
+  No: "No — only for the programme area answered above",
+  Yes: "Yes — we also supply in other locations (required detail below)",
+};
+
 export const EOI_ENTITY_TYPES = [
   "Proprietorship",
   "Partnership",

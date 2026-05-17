@@ -30,6 +30,8 @@ export interface ExpressionOfInterestRow {
   departments_served: unknown;
   zones: unknown;
   can_work_in_programme_location: string | null;
+  also_supplies_other_locations: string | null;
+  other_supply_locations_detail: string | null;
   experience_years: string;
   turnover_range: string | null;
   capability_description: string;

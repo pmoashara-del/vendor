@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import {
+  EOI_ALSO_SUPPLIES_ELSEWHERE,
+  EOI_ALSO_SUPPLIES_ELSEWHERE_LABELS,
   EOI_CAN_WORK_IN_LOCATION,
   EOI_CAN_WORK_IN_LOCATION_LABELS,
   EOI_ENTITY_TYPES,
@@ -12,7 +14,7 @@ import {
   EOI_TURNOVER,
   programmeZonesFromWorkLocation,
 } from "@/lib/eoi/options";
-import type { EoiCanWorkInLocation } from "@/lib/eoi/options";
+import type { EoiAlsoSuppliesElsewhere, EoiCanWorkInLocation } from "@/lib/eoi/options";
 import { GST_STATE_OPTIONS, resolveGstStateCode } from "@/lib/eoi/indian-gst-state";
 import {
   buildGstinPrefix,
@@ -76,6 +78,8 @@ export function ExpressionOfInterestForm() {
 
   const [categorySelections, setCategorySelections] = useState<CategorySelection[]>([]);
   const [canWorkLocation, setCanWorkLocation] = useState<EoiCanWorkInLocation | "">("");
+  const [alsoSuppliesElsewhere, setAlsoSuppliesElsewhere] = useState<EoiAlsoSuppliesElsewhere>("No");
+  const [otherSupplyLocationsDetail, setOtherSupplyLocationsDetail] = useState("");
   const [expYrs, setExpYrs] = useState("");
   const [turnover, setTurnover] = useState("");
   const [capability, setCapability] = useState("");
@@ -126,6 +130,7 @@ export function ExpressionOfInterestForm() {
     if (s === 2) {
       if (!isValidCategorySelectionsList(categorySelections)) e.categorySelections = true;
       if (!canWorkLocation) e.canWorkLocation = true;
+      if (alsoSuppliesElsewhere === "Yes" && !otherSupplyLocationsDetail.trim()) e.otherSupplyLocationsDetail = true;
       if (!expYrs) e.expYrs = true;
       if (!capability.trim()) e.capability = true;
     }
@@ -192,6 +197,9 @@ export function ExpressionOfInterestForm() {
       departments_served,
       zones: zonesArr,
       can_work_in_programme_location: canWorkLocation as EoiCanWorkInLocation,
+      also_supplies_other_locations: alsoSuppliesElsewhere,
+      other_supply_locations_detail:
+        alsoSuppliesElsewhere === "Yes" ? otherSupplyLocationsDetail.trim() || null : null,
       experience_years: expYrs,
       turnover_range: turnover || null,
       capability_description: capability.trim(),
@@ -633,6 +641,53 @@ export function ExpressionOfInterestForm() {
                   {errs.canWorkLocation ? (
                     <p className="mt-1 text-xs text-red-600">Select one option</p>
                   ) : null}
+                  <div className="mt-6 border-t border-[#e8ddd0] pt-5">
+                    <Label req>Do you also supply in other locations?</Label>
+                    <p className="mb-2 text-[12px] leading-snug text-[#8a7a6e]">
+                      Apart from Indore / Madhya Pradesh for this programme, do you take similar assignments elsewhere?
+                      If yes, list states, cities, or regions.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {EOI_ALSO_SUPPLIES_ELSEWHERE.map((v) => (
+                        <label key={v} className="cursor-pointer">
+                          <input
+                            type="radio"
+                            name="alsoSuppliesElsewhere"
+                            className="peer sr-only"
+                            checked={alsoSuppliesElsewhere === v}
+                            onChange={() => {
+                              setAlsoSuppliesElsewhere(v);
+                              if (v === "No") setOtherSupplyLocationsDetail("");
+                            }}
+                          />
+                          <span className="block max-w-xl rounded-sm border border-[#e8ddd0] px-4 py-2 text-left text-[13px] text-[#4a3f35] peer-checked:border-[#b8860b] peer-checked:bg-[#fff8ec] peer-checked:font-semibold peer-checked:text-[#b8860b]">
+                            {EOI_ALSO_SUPPLIES_ELSEWHERE_LABELS[v]}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {alsoSuppliesElsewhere === "Yes" ? (
+                      <div className="mt-3">
+                        <Label req>Where else do you supply?</Label>
+                        <textarea
+                          rows={3}
+                          maxLength={2000}
+                          className={fieldClass(!!errs.otherSupplyLocationsDetail)}
+                          value={otherSupplyLocationsDetail}
+                          onChange={(e) => setOtherSupplyLocationsDetail(e.target.value)}
+                          placeholder="e.g. Maharashtra — Mumbai, Pune; National — PAN India for certain categories"
+                        />
+                        <p className="mt-1 text-right text-[11px] text-[#8a7a6e]">
+                          {otherSupplyLocationsDetail.length}/2000
+                        </p>
+                        {errs.otherSupplyLocationsDetail ? (
+                          <p className="mt-1 text-xs text-red-600">
+                            Please describe the other locations where you supply.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 <Divider label="Experience & Scale" />
                 <div className="grid gap-5 sm:grid-cols-2">
@@ -778,6 +833,16 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-medium">
                       {canWorkLocation ? EOI_CAN_WORK_IN_LOCATION_LABELS[canWorkLocation] : "—"}
                     </dd>
+                    <dt className="text-[#8a7a6e]">Also supplies elsewhere</dt>
+                    <dd className="font-medium">{alsoSuppliesElsewhere === "Yes" ? "Yes" : "No"}</dd>
+                    {alsoSuppliesElsewhere === "Yes" && otherSupplyLocationsDetail.trim() ? (
+                      <>
+                        <dt className="text-[#8a7a6e]">Other locations</dt>
+                        <dd className="whitespace-pre-wrap text-[13px] font-medium leading-snug">
+                          {otherSupplyLocationsDetail.trim()}
+                        </dd>
+                      </>
+                    ) : null}
                     {itsNumber.replace(/\D/g, "").length === ITS_DIGITS ? (
                       <>
                         <dt className="text-[#8a7a6e]">ITS number</dt>

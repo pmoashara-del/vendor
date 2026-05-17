@@ -198,6 +198,10 @@ function EoiDetailModal({ row, onClose }: { row: ExpressionOfInterestRow; onClos
             <DetailRow label="Departments served (legacy)">{formatJsonList(row.departments_served)}</DetailRow>
             <DetailRow label="Zones / coverage">{formatJsonList(row.zones)}</DetailRow>
             <DetailRow label="Can work in programme area">{row.can_work_in_programme_location ?? "—"}</DetailRow>
+            <DetailRow label="Also supplies other locations">{row.also_supplies_other_locations ?? "—"}</DetailRow>
+            <DetailRow label="Other supply locations (detail)">
+              <span className="whitespace-pre-wrap">{row.other_supply_locations_detail ?? "—"}</span>
+            </DetailRow>
             <DetailRow label="Experience (years band)">{row.experience_years}</DetailRow>
             <DetailRow label="Turnover range">{row.turnover_range ?? "—"}</DetailRow>
             <DetailRow label="Capability">
@@ -256,6 +260,7 @@ export function EoiAdminPanel({
         s.reference_number.toLowerCase().includes(q) ||
         pan.includes(q) ||
         addr.includes(q) ||
+        (s.other_supply_locations_detail ?? "").toLowerCase().includes(q) ||
         (qDigits.length > 0 && (mobile.includes(qDigits) || !!s.its_number?.includes(qDigits)))
       );
     });
