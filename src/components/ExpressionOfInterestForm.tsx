@@ -289,7 +289,7 @@ export function ExpressionOfInterestForm() {
         <div className="mb-2 flex justify-between text-[10px] uppercase tracking-wider text-[#8a7a6e]">
           <span>Step {step} of 3</span>
           <span>
-            {step === 1 ? "Business & tax" : step === 2 ? "Offerings" : "Declaration"}
+            {step === 1 ? "Business & tax" : step === 2 ? "What you can supply" : "Declaration"}
           </span>
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-[#e8ddd0]">
@@ -557,7 +557,7 @@ export function ExpressionOfInterestForm() {
                   onClick={next}
                   className="rounded-sm bg-[#b8860b] px-7 py-2.5 text-[13px] font-semibold uppercase tracking-wider text-white shadow-md transition hover:bg-[#a07808]"
                 >
-                  Next — Offerings →
+                  Next — What you can supply →
                 </button>
               </>
             }
@@ -567,12 +567,17 @@ export function ExpressionOfInterestForm() {
         {step === 2 && (
           <Panel
             icon="📦"
-            title="Offerings & Capability"
-            desc="Describe the goods or services you wish to supply"
+            title="What you can supply"
+            desc="Pick your closest category, then list the specific items, materials, equipment, or services you can provide. Shortlisted vendors are matched using this list."
             body={
               <>
+                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description." />
                 <div>
-                  <Label req>Primary Category of Supply</Label>
+                  <Label req>Primary category (closest match)</Label>
+                  <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
+                    Choose the single best fit. The detailed list of everything you can provide goes in the required box
+                    below.
+                  </p>
                   <select
                     className={fieldClass(!!errs.category)}
                     value={category}
@@ -591,7 +596,10 @@ export function ExpressionOfInterestForm() {
                   </select>
                 </div>
                 <div className="mt-5">
-                  <Label>Departments / Areas You Can Serve</Label>
+                  <Label>Departments / areas (optional tags)</Label>
+                  <p className="mb-2 text-[12px] text-[#8a7a6e]">
+                    Tick any that apply. This does not replace your item list — it only helps routing.
+                  </p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {EOI_DEPARTMENTS.map((d) => (
                       <label key={d} className="flex cursor-pointer items-center gap-2 text-[13px] text-[#4a3f35]">
@@ -679,15 +687,28 @@ export function ExpressionOfInterestForm() {
                     </select>
                   </div>
                   <div className="sm:col-span-2">
-                    <Label req>Brief Description of Capability</Label>
+                    <Label req>List of items &amp; services you can provide</Label>
+                    <p className="mb-1.5 text-[12px] leading-snug text-[#8a7a6e]">
+                      Write each product, material, equipment type, or service on its own line (or use bullets). Be
+                      specific — for example quantities, sizes, capacities, or pack types where relevant. This field is
+                      required and is used to match you to programme needs.
+                    </p>
                     <textarea
-                      rows={4}
+                      rows={6}
                       maxLength={500}
                       className={fieldClass(!!errs.capability)}
                       value={capability}
                       onChange={(e) => setCapability(e.target.value)}
+                      placeholder={
+                        "Examples:\n• Parboiled rice — 50 kg bags, supply up to 10 tonnes/month\n• Diesel generators — 25 kVA and 63 kVA with cabling\n• Tent / shamiana — 300–800 guests\n• Housekeeping — daily staff for office blocks"
+                      }
                     />
-                    <p className="text-right text-[11px] text-[#8a7a6e]">{capability.length}/500</p>
+                    <p className="mt-1 text-right text-[11px] text-[#8a7a6e]">{capability.length}/500</p>
+                    {errs.capability ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        Enter a list of the items and/or services you can provide (not only your company name).
+                      </p>
+                    ) : null}
                   </div>
                   <div className="sm:col-span-2">
                     <Label>Previous Work with Similar Organisations (Optional)</Label>
@@ -752,6 +773,8 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-medium">{bizName}</dd>
                     <dt className="text-[#8a7a6e]">Category</dt>
                     <dd className="font-medium">{category}</dd>
+                    <dt className="text-[#8a7a6e]">Items &amp; services you will supply</dt>
+                    <dd className="whitespace-pre-wrap text-[13px] font-medium leading-snug">{capability || "—"}</dd>
                     <dt className="text-[#8a7a6e]">Contact</dt>
                     <dd className="font-medium">
                       {cpName} · {email}

@@ -35,7 +35,10 @@ const eoiSubmitSchemaBase = z.object({
   can_work_in_programme_location: z.enum(["Yes", "No", "Limited"]),
   experience_years: z.string().min(1).max(100),
   turnover_range: z.string().max(200).optional().nullable(),
-  capability_description: z.string().min(1).max(500),
+  capability_description: z
+    .string()
+    .min(1, "List the items and/or services you can provide")
+    .max(500),
   previous_work: z.string().max(400).optional().nullable(),
 
   pan_number: z
