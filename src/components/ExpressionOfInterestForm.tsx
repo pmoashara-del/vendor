@@ -13,9 +13,9 @@ import {
   EOI_ZONES,
 } from "@/lib/eoi/options";
 import type { EoiCanWorkInLocation } from "@/lib/eoi/options";
-import { GST_STATE_OPTIONS } from "@/lib/eoi/indian-gst-state";
+import { GST_STATE_OPTIONS, resolveGstStateCode } from "@/lib/eoi/indian-gst-state";
 import {
-  buildGSTIN,
+  buildGstinPrefix,
   DEFAULT_GST_STATE_CODE,
   gstinBelongsToPAN,
   validateGSTIN,
@@ -33,14 +33,20 @@ type Step = 1 | 2 | 3;
 
 const ITS_DIGITS = 8;
 
-function nextGstForPan(panField: string, prevGst: string): string {
+function gstStatusesNeedingGstin(s: string): boolean {
+  return s === "Registered" || s === "Composition";
+}
+
+/** Suggested GSTIN: state (2) + PAN (10) only; user enters the last three characters. Preserves a full valid foreign GSTIN if it does not embed this PAN. */
+function nextGstForPan(panField: string, city: string, state: string, prevGst: string): string {
   const panNorm = panField.toUpperCase().replace(/\s/g, "");
   if (!validatePAN(panNorm)) return prevGst;
-  const built = buildGSTIN(panNorm, DEFAULT_GST_STATE_CODE, 1);
+  const code = resolveGstStateCode(state, city) ?? DEFAULT_GST_STATE_CODE;
+  const prefix = buildGstinPrefix(panNorm, code);
   const g = prevGst.trim().toUpperCase().replace(/\s/g, "");
-  if (!g) return built;
   if (validateGSTIN(g) && !gstinBelongsToPAN(g, panNorm)) return g;
-  return built;
+  const suffix = g.startsWith(prefix) && g.length > 12 ? g.slice(12, 15) : "";
+  return (prefix + suffix).slice(0, 15);
 }
 
 function fieldClass(err: boolean) {
@@ -86,14 +92,18 @@ export function ExpressionOfInterestForm() {
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
 
   const [errs, setErrs] = useState<Partial<Record<string, boolean>>>({});
+  /** Step 1 field-level errors only after the user clicks Next (or submit from step 3). */
+  const [step1SubmitAttempted, setStep1SubmitAttempted] = useState(false);
+
+  const s1Err = step1SubmitAttempted;
 
   function toggleZone(k: string) {
     setZones((z) => ({ ...z, [k]: !z[k] }));
   }
 
-  function syncGstIfRegistered(panVal: string) {
-    if (gstStatus !== "Registered") return;
-    setGstNum((prev) => nextGstForPan(panVal, prev));
+  function syncGstIfNeeded(panVal: string) {
+    if (!gstStatusesNeedingGstin(gstStatus)) return;
+    setGstNum((prev) => nextGstForPan(panVal, businessCity, businessState, prev));
   }
 
   function validate(s: Step): boolean {
@@ -116,7 +126,7 @@ export function ExpressionOfInterestForm() {
       if (!validatePAN(panNorm)) e.pan = true;
       else if (entityType && !panFourthCharMatchesEntityType(panNorm, entityType)) e.panEntity = true;
       if (!gstStatus) e.gstStatus = true;
-      if (gstStatus === "Registered" && !validateGSTIN(gstNum)) e.gstNum = true;
+      if (gstStatusesNeedingGstin(gstStatus) && !validateGSTIN(gstNum)) e.gstNum = true;
     }
     if (s === 2) {
       if (!isValidCategorySelectionsList(categorySelections)) e.categorySelections = true;
@@ -130,18 +140,33 @@ export function ExpressionOfInterestForm() {
   }
 
   function next() {
+    if (step === 1) {
+      const ok = validate(1);
+      if (!ok) {
+        setStep1SubmitAttempted(true);
+        return;
+      }
+      setStep1SubmitAttempted(false);
+      setStep(2);
+      setFormErr(null);
+      return;
+    }
     if (!validate(step)) return;
     setStep((s) => (s < 3 ? ((s + 1) as Step) : s));
     setFormErr(null);
   }
   function back() {
-    setStep((s) => (s > 1 ? ((s - 1) as Step) : s));
     setFormErr(null);
+    setStep((s) => {
+      if (s === 2) setStep1SubmitAttempted(false);
+      return s > 1 ? ((s - 1) as Step) : s;
+    });
   }
 
   async function submit() {
     if (!validate(1)) {
       setStep(1);
+      setStep1SubmitAttempted(true);
       return;
     }
     if (!validate(2)) {
@@ -179,7 +204,7 @@ export function ExpressionOfInterestForm() {
       previous_work: prevWork.trim() || null,
       pan_number: pan.toUpperCase().replace(/\s/g, ""),
       gst_number:
-        gstStatus === "Registered" && gstNum.trim()
+        gstStatusesNeedingGstin(gstStatus) && gstNum.trim()
           ? gstNum.toUpperCase().replace(/\s/g, "")
           : null,
       gst_status: gstStatus,
@@ -315,13 +340,13 @@ export function ExpressionOfInterestForm() {
             title="Business Information"
             desc="Your firm, contact details, and basic tax information"
             body={
-              <>
+              <div className="contents" onFocusCapture={() => setStep1SubmitAttempted(false)}>
                 <Notice text="This is an Expression of Interest only. Submission does not guarantee empanelment. Shortlisted vendors will be contacted for document verification and final registration." />
                 <div className="grid gap-5 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <Label req>Business / Firm Name</Label>
                     <input
-                      className={fieldClass(!!errs.bizName)}
+                      className={fieldClass(s1Err && !!errs.bizName)}
                       value={bizName}
                       onChange={(e) => setBizName(e.target.value)}
                       placeholder="As registered / operating name"
@@ -330,7 +355,7 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label req>Type of Entity</Label>
                     <select
-                      className={fieldClass(!!errs.entityType || !!errs.panEntity)}
+                      className={fieldClass(s1Err && (!!errs.entityType || !!errs.panEntity))}
                       value={entityType}
                       onChange={(e) => setEntityType(e.target.value)}
                     >
@@ -348,7 +373,7 @@ export function ExpressionOfInterestForm() {
                       type="number"
                       min={1950}
                       max={2030}
-                      className={fieldClass(!!errs.estYr)}
+                      className={fieldClass(s1Err && !!errs.estYr)}
                       value={estYr}
                       onChange={(e) => setEstYr(e.target.value)}
                       placeholder="e.g. 2010"
@@ -360,7 +385,7 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label req>Contact Person Name</Label>
                     <input
-                      className={fieldClass(!!errs.cpName)}
+                      className={fieldClass(s1Err && !!errs.cpName)}
                       value={cpName}
                       onChange={(e) => setCpName(e.target.value)}
                     />
@@ -376,7 +401,7 @@ export function ExpressionOfInterestForm() {
                       inputMode="numeric"
                       autoComplete="off"
                       maxLength={ITS_DIGITS}
-                      className={fieldClass(!!errs.itsNumber)}
+                      className={fieldClass(s1Err && !!errs.itsNumber)}
                       value={itsNumber}
                       onChange={(e) => setItsNumber(e.target.value.replace(/\D/g, "").slice(0, ITS_DIGITS))}
                     />
@@ -384,7 +409,7 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label req>Mobile Number</Label>
                     <input
-                      className={fieldClass(!!errs.mobile)}
+                      className={fieldClass(s1Err && !!errs.mobile)}
                       value={mobile}
                       onChange={(e) => setMobile(e.target.value)}
                       placeholder="10-digit mobile"
@@ -394,7 +419,7 @@ export function ExpressionOfInterestForm() {
                     <Label req>Email Address</Label>
                     <input
                       type="email"
-                      className={fieldClass(!!errs.email)}
+                      className={fieldClass(s1Err && !!errs.email)}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
@@ -405,24 +430,24 @@ export function ExpressionOfInterestForm() {
                   <div>
                     <Label req>City</Label>
                     <input
-                      className={fieldClass(!!errs.city)}
+                      className={fieldClass(s1Err && !!errs.city)}
                       value={businessCity}
                       onChange={(e) => {
                         const v = e.target.value;
                         setBusinessCity(v);
-                        syncGstIfRegistered(pan);
+                        syncGstIfNeeded(pan);
                       }}
                     />
                   </div>
                   <div>
                     <Label req>State / UT</Label>
                     <select
-                      className={fieldClass(!!errs.state)}
+                      className={fieldClass(s1Err && !!errs.state)}
                       value={businessState}
                       onChange={(e) => {
                         const v = e.target.value;
                         setBusinessState(v);
-                        syncGstIfRegistered(pan);
+                        syncGstIfNeeded(pan);
                       }}
                     >
                       <option value="">— Select —</option>
@@ -437,7 +462,7 @@ export function ExpressionOfInterestForm() {
                     <Label req>Street, building, locality</Label>
                     <textarea
                       rows={2}
-                      className={fieldClass(!!errs.address)}
+                      className={fieldClass(s1Err && !!errs.address)}
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
                       placeholder="Building, street, area, PIN"
@@ -449,18 +474,18 @@ export function ExpressionOfInterestForm() {
                   <div className="sm:col-span-2">
                     <Label req>PAN Number</Label>
                     <input
-                      className={fieldClass(!!errs.pan || !!errs.panEntity)}
+                      className={fieldClass(s1Err && (!!errs.pan || !!errs.panEntity))}
                       value={pan}
                       maxLength={10}
                       onChange={(e) => {
                         const v = e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 10);
                         setPan(v);
-                        syncGstIfRegistered(v);
+                        syncGstIfNeeded(v);
                       }}
                       placeholder="ABCDE1234F"
                     />
                     <p className="mt-1 text-[11px] text-[#8a7a6e]">10-character Permanent Account Number</p>
-                    {errs.panEntity ? (
+                    {s1Err && errs.panEntity ? (
                       <p className="mt-1 text-xs leading-snug text-red-600">
                         {panEntityConsistencyMessage(entityType, pan)}
                       </p>
@@ -478,10 +503,10 @@ export function ExpressionOfInterestForm() {
                             checked={gstStatus === g}
                             onChange={() => {
                               setGstStatus(g);
-                              if (g !== "Registered") {
-                                setGstNum("");
+                              if (gstStatusesNeedingGstin(g)) {
+                                setGstNum((prev) => nextGstForPan(pan, businessCity, businessState, prev));
                               } else {
-                                setGstNum((prev) => nextGstForPan(pan, prev));
+                                setGstNum("");
                               }
                             }}
                           />
@@ -497,20 +522,20 @@ export function ExpressionOfInterestForm() {
                         </label>
                       ))}
                     </div>
-                    {errs.gstStatus ? <p className="mt-1 text-xs text-red-600">Select GST status</p> : null}
+                    {s1Err && errs.gstStatus ? <p className="mt-1 text-xs text-red-600">Select GST status</p> : null}
                   </div>
-                  {gstStatus === "Registered" ? (
+                  {gstStatusesNeedingGstin(gstStatus) ? (
                     <div className="sm:col-span-2">
-                      <Label req>GST Registration Number</Label>
+                      <Label req>GSTIN (15 characters)</Label>
                       <input
-                        className={fieldClass(!!errs.gstNum)}
+                        className={fieldClass(s1Err && !!errs.gstNum)}
                         value={gstNum}
                         maxLength={15}
                         onChange={(e) =>
                           setGstNum(e.target.value.toUpperCase().replace(/\s/g, "").slice(0, 15))
                         }
                       />
-                      {errs.gstNum ? (
+                      {s1Err && errs.gstNum ? (
                         <p className="mt-1 text-xs text-red-600">
                           {gstNum.replace(/\s/g, "").length < 15
                             ? "Enter the last three characters of your GSTIN; they are not auto-filled and are required."
@@ -518,8 +543,8 @@ export function ExpressionOfInterestForm() {
                         </p>
                       ) : (
                         <p className="mt-1 text-[11px] text-[#8a7a6e]">
-                          First 12 characters are filled from state and PAN. You must enter the final three
-                          characters yourself (they are required to submit).
+                          The first 12 characters follow your state and PAN. Enter the final three characters yourself
+                          (they are not filled in for you).
                         </p>
                       )}
                     </div>
@@ -544,7 +569,7 @@ export function ExpressionOfInterestForm() {
                     </div>
                   </div>
                 </div>
-              </>
+              </div>
             }
             foot={
               <>
@@ -565,15 +590,15 @@ export function ExpressionOfInterestForm() {
           <Panel
             icon="📦"
             title="What you can supply"
-            desc="Choose every broad industry (main category) that applies, and tick all vendor types (sub categories) you offer under each — you may select several industries and several types within each. Then list the specific items, materials, equipment, or services you can provide."
+            desc="Pick industries from the list and the vendor types you offer, then describe your items and services in detail."
             body={
               <>
-                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description. First tick every main category and vendor type that applies below." />
+                <Notice text="You must give a clear list of what you can supply (goods and/or services). Use separate lines or bullet points so evaluators can see each item — not only a general company description." />
                 <div className="sm:col-span-2">
                   <Label req>Categories you supply</Label>
                   <p className="mb-2 text-[12px] leading-snug text-[#8a7a6e]">
-                    Under each broad industry, tick one or more vendor types. You may select several industries and
-                    several types within the same industry.
+                    Choose an industry from the dropdown, tick every vendor type you offer under it, then pick another
+                    industry if needed.
                   </p>
                   <CategorySelectionsPicker
                     value={categorySelections}
@@ -590,10 +615,11 @@ export function ExpressionOfInterestForm() {
                 </div>
                 <Divider label="Programme location" />
                 <div className="sm:col-span-2">
-                  <Label req>Can you take on work based in Indore / Madhya Pradesh for this programme?</Label>
-                  <p className="mb-2 text-[12px] text-[#8a7a6e]">
-                    This refers to assignments in this geography, not only where your business is registered.
+                  <p className="mb-3 text-[12px] leading-snug text-[#8a7a6e]">
+                    Programme work is evaluated for Indore and Madhya Pradesh. The questions below are about where you
+                    can take assignments for this programme — not only where your business is registered.
                   </p>
+                  <Label req>Can you take on work based in Indore / Madhya Pradesh for this programme?</Label>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {EOI_CAN_WORK_IN_LOCATION.map((v) => (
                       <label key={v} className="cursor-pointer">
@@ -616,7 +642,6 @@ export function ExpressionOfInterestForm() {
                 </div>
                 <div>
                   <Label req>Programme area you can operate in</Label>
-                  <p className="mb-2 text-[12px] text-[#8a7a6e]">Single combined area for this EOI.</p>
                   <div className="mt-2">
                     {EOI_ZONES.map((z) => (
                       <label key={z} className="flex cursor-pointer items-start gap-2 text-[13px] text-[#4a3f35]">
@@ -764,6 +789,14 @@ export function ExpressionOfInterestForm() {
                     <dd className="font-mono text-[13px] font-medium">{pan.toUpperCase().replace(/\s/g, "")}</dd>
                     <dt className="text-[#8a7a6e]">GST status</dt>
                     <dd className="font-medium">{gstStatus || "—"}</dd>
+                    {gstStatusesNeedingGstin(gstStatus) && gstNum.replace(/\s/g, "").length > 0 ? (
+                      <>
+                        <dt className="text-[#8a7a6e]">GSTIN</dt>
+                        <dd className="break-all font-mono text-[13px] font-medium">
+                          {gstNum.toUpperCase().replace(/\s/g, "")}
+                        </dd>
+                      </>
+                    ) : null}
                     <dt className="text-[#8a7a6e]">Work in programme area</dt>
                     <dd className="font-medium">
                       {canWorkLocation ? EOI_CAN_WORK_IN_LOCATION_LABELS[canWorkLocation] : "—"}

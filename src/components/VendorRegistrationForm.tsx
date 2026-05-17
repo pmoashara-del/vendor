@@ -5,7 +5,7 @@ import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker"
 import { ItsNumberGate } from "@/components/ItsNumberGate";
 import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
 import {
-  buildGSTIN,
+  buildGstinPrefix,
   DEFAULT_GST_STATE_CODE,
   gstinBelongsToPAN,
   validateGSTIN,
@@ -142,17 +142,17 @@ function inputClass() {
   return "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none ring-zinc-400 focus:border-zinc-500 focus:ring-2 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100";
 }
 
-/** When GST is enabled, keep GSTIN aligned with PAN unless the user entered a valid GSTIN for another entity. */
+/** When GST is enabled, keep GSTIN prefix aligned with PAN unless the user entered a valid GSTIN for another entity. Last three GSTIN characters are never auto-filled. */
 function applyPanChange(prev: FormState, panRaw: string): FormState {
   const pan = panRaw.toUpperCase().replace(/\s/g, "").slice(0, 10);
   const next: FormState = { ...prev, pan_number: pan };
   if (!next.gst_registered) return next;
   if (!validatePAN(pan)) return next;
-  const built = buildGSTIN(pan, DEFAULT_GST_STATE_CODE, 1);
-  const cur = next.gstin.trim().toUpperCase();
-  if (!cur) return { ...next, gstin: built };
+  const prefix = buildGstinPrefix(pan, DEFAULT_GST_STATE_CODE);
+  const cur = next.gstin.trim().toUpperCase().replace(/\s/g, "");
   if (validateGSTIN(cur) && !gstinBelongsToPAN(cur, pan)) return next;
-  return { ...next, gstin: built };
+  const suffix = cur.startsWith(prefix) && cur.length > 12 ? cur.slice(12, 15) : "";
+  return { ...next, gstin: (prefix + suffix).slice(0, 15) };
 }
 
 function SectionTitle({ n, title }: { n: number; title: string }) {
@@ -565,7 +565,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
               setF((prev) => {
                 const pan = prev.pan_number.toUpperCase().replace(/\s/g, "");
                 const gstin =
-                  validatePAN(pan) ? buildGSTIN(pan, DEFAULT_GST_STATE_CODE, 1) : prev.gstin;
+                  validatePAN(pan) ? buildGstinPrefix(pan, DEFAULT_GST_STATE_CODE) : prev.gstin;
                 return { ...prev, gst_registered: true, gstin };
               });
             }}
@@ -586,8 +586,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
           />
           {f.gst_registered ? (
             <p className="mt-1 text-xs text-zinc-500">
-              A provisional GSTIN is suggested from your PAN (state 23 — Madhya Pradesh). Replace it with your actual
-              GSTIN if different.
+              The first 12 characters are suggested from your PAN and state 23 (Madhya Pradesh). Enter the final three
+              characters yourself; they are not auto-filled. Replace the whole GSTIN if yours differs.
             </p>
           ) : null}
         </div>

@@ -78,18 +78,19 @@ const eoiSubmitSchemaBase = z.object({
 });
 
 export const eoiSubmitSchema = eoiSubmitSchemaBase.superRefine((data, ctx) => {
-  if (data.gst_status === "Registered") {
+  const needsGstin = data.gst_status === "Registered" || data.gst_status === "Composition";
+  if (needsGstin) {
     if (data.gst_number == null || !validateGSTIN(data.gst_number)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Valid GSTIN is required when GST status is Registered",
+        message: "Valid GSTIN is required when GST status is Registered or Composition scheme",
         path: ["gst_number"],
       });
     }
   } else if (data.gst_number != null) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: "GST number must be omitted unless GST status is Registered",
+      message: "GST number must be omitted unless GST status is Registered or Composition scheme",
       path: ["gst_number"],
     });
   }
