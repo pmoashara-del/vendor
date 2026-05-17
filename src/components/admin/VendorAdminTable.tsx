@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { AdminChecklistFilter, type ChecklistSelection } from "@/components/admin/AdminChecklistFilter";
 import { downloadVendorAdminDoc, exportVendorListToXlsx } from "@/lib/admin/export-reports";
 import type { RegistrationStatus, VendorRegistrationRow } from "@/types/vendor";
 
@@ -12,25 +13,24 @@ const STATUS_OPTIONS: RegistrationStatus[] = [
   "on_hold",
 ];
 
-const emptyVendorFilters = {
-  submitted: "",
-  updated: "",
-  its: "",
-  company: "",
-  type: "",
-  city: "",
-  state: "",
-  contact: "",
-  email: "",
-  gst: "",
-  status: "" as "" | RegistrationStatus,
+const emptyVendorFilters: Record<
+  "submitted" | "updated" | "its" | "company" | "type" | "city" | "state" | "contact" | "email" | "gst" | "status",
+  ChecklistSelection
+> = {
+  submitted: null,
+  updated: null,
+  its: null,
+  company: null,
+  type: null,
+  city: null,
+  state: null,
+  contact: null,
+  email: null,
+  gst: null,
+  status: null,
 };
 
 type VendorColFilters = typeof emptyVendorFilters;
-
-function filterInputClass() {
-  return "w-full min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100";
-}
 
 function formatDateTime(iso: string | null | undefined): string {
   if (iso == null || iso === "") return "—";
@@ -39,29 +39,64 @@ function formatDateTime(iso: string | null | undefined): string {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function vendorRowMatchesFilters(v: VendorRegistrationRow, f: VendorColFilters): boolean {
-  const inc = (hay: string | null | undefined, needle: string) => {
-    const n = needle.trim().toLowerCase();
-    if (!n) return true;
-    return (hay ?? "").toLowerCase().includes(n);
+function vendorGlobalSearchBlob(v: VendorRegistrationRow): string {
+  const parts = [
+    formatDateTime(v.created_at),
+    formatDateTime(v.updated_at),
+    v.its_number ?? "",
+    v.company_name,
+    v.vendor_type,
+    v.city,
+    v.state,
+    v.primary_contact_person,
+    v.email,
+    v.gst_registered ? "Yes" : "No",
+    v.registration_status.replaceAll("_", " "),
+    v.id,
+  ];
+  return parts.join(" ").toLowerCase();
+}
+
+function matchesGlobalSearch(query: string, blob: string): boolean {
+  const t = query.trim().toLowerCase();
+  if (!t) return true;
+  return blob.includes(t);
+}
+
+function colMatch(sel: ChecklistSelection, cellValue: string): boolean {
+  if (sel == null) return true;
+  return sel.has(cellValue);
+}
+
+function vendorCellValues(v: VendorRegistrationRow) {
+  return {
+    submitted: formatDateTime(v.created_at),
+    updated: formatDateTime(v.updated_at),
+    its: v.its_number ?? "—",
+    company: v.company_name || "—",
+    type: v.vendor_type || "—",
+    city: v.city || "—",
+    state: v.state || "—",
+    contact: v.primary_contact_person || "—",
+    email: v.email || "—",
+    gst: v.gst_registered ? "Yes" : "No",
+    status: v.registration_status.replaceAll("_", " "),
   };
-  const subFmt = formatDateTime(v.created_at).toLowerCase();
-  if (!inc(v.created_at, f.submitted) && !inc(subFmt, f.submitted)) return false;
-  const updFmt = formatDateTime(v.updated_at).toLowerCase();
-  if (!inc(v.updated_at, f.updated) && !inc(updFmt, f.updated)) return false;
-  const its = (v.its_number ?? "").replace(/\D/g, "");
-  const itsQ = f.its.replace(/\D/g, "");
-  if (itsQ && !its.includes(itsQ)) return false;
-  if (f.its.trim() && !itsQ && !inc(v.its_number, f.its)) return false;
-  if (!inc(v.company_name, f.company)) return false;
-  if (!inc(v.vendor_type, f.type)) return false;
-  if (!inc(v.city, f.city)) return false;
-  if (!inc(v.state, f.state)) return false;
-  if (!inc(v.primary_contact_person, f.contact)) return false;
-  if (!inc(v.email, f.email)) return false;
-  const gstLabel = v.gst_registered ? "yes" : "no";
-  if (f.gst.trim() && !gstLabel.includes(f.gst.trim().toLowerCase())) return false;
-  if (f.status && v.registration_status !== f.status) return false;
+}
+
+function vendorRowMatchesColumnFilters(v: VendorRegistrationRow, f: VendorColFilters): boolean {
+  const c = vendorCellValues(v);
+  if (!colMatch(f.submitted, c.submitted)) return false;
+  if (!colMatch(f.updated, c.updated)) return false;
+  if (!colMatch(f.its, c.its)) return false;
+  if (!colMatch(f.company, c.company)) return false;
+  if (!colMatch(f.type, c.type)) return false;
+  if (!colMatch(f.city, c.city)) return false;
+  if (!colMatch(f.state, c.state)) return false;
+  if (!colMatch(f.contact, c.contact)) return false;
+  if (!colMatch(f.email, c.email)) return false;
+  if (!colMatch(f.gst, c.gst)) return false;
+  if (!colMatch(f.status, c.status)) return false;
   return true;
 }
 
@@ -76,11 +111,46 @@ export function VendorAdminTable({
   statusSavingId: string | null;
   onPatchStatus: (v: VendorRegistrationRow, next: RegistrationStatus) => void | Promise<void>;
 }) {
+  const [globalSearch, setGlobalSearch] = useState("");
   const [colFilters, setColFilters] = useState<VendorColFilters>(emptyVendorFilters);
 
+  const searchPool = useMemo(
+    () => vendors.filter((v) => matchesGlobalSearch(globalSearch, vendorGlobalSearchBlob(v))),
+    [vendors, globalSearch],
+  );
+
+  const opt = useMemo(() => {
+    const submitted: string[] = [];
+    const updated: string[] = [];
+    const its: string[] = [];
+    const company: string[] = [];
+    const type: string[] = [];
+    const city: string[] = [];
+    const state: string[] = [];
+    const contact: string[] = [];
+    const email: string[] = [];
+    const gst: string[] = [];
+    const status: string[] = [];
+    for (const v of searchPool) {
+      const c = vendorCellValues(v);
+      submitted.push(c.submitted);
+      updated.push(c.updated);
+      its.push(c.its);
+      company.push(c.company);
+      type.push(c.type);
+      city.push(c.city);
+      state.push(c.state);
+      contact.push(c.contact);
+      email.push(c.email);
+      gst.push(c.gst);
+      status.push(c.status);
+    }
+    return { submitted, updated, its, company, type, city, state, contact, email, gst, status };
+  }, [searchPool]);
+
   const filtered = useMemo(
-    () => vendors.filter((v) => vendorRowMatchesFilters(v, colFilters)),
-    [vendors, colFilters],
+    () => searchPool.filter((v) => vendorRowMatchesColumnFilters(v, colFilters)),
+    [searchPool, colFilters],
   );
 
   function exportExcel() {
@@ -91,15 +161,13 @@ export function VendorAdminTable({
   return (
     <section>
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold">Registered vendors</h2>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
-            Filter each column from the row under the headers. Excel includes <strong>workflow_summary</strong>{" "}
-            (status, linked EOI, timestamps). Exports respect active filters. Showing{" "}
-            <strong>{filtered.length}</strong> of {vendors.length}.
+            Use search and column filters, then export the rows you need.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <button
             type="button"
             onClick={exportExcel}
@@ -109,12 +177,34 @@ export function VendorAdminTable({
           </button>
           <button
             type="button"
-            onClick={() => setColFilters({ ...emptyVendorFilters })}
+            onClick={() => {
+              setGlobalSearch("");
+              setColFilters({ ...emptyVendorFilters });
+            }}
             className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
           >
-            Clear column filters
+            Clear search and filters
           </button>
         </div>
+      </div>
+
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <label className="block min-w-0 flex-1 text-sm text-zinc-800 dark:text-zinc-200">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Search
+          </span>
+          <input
+            type="search"
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="w-full max-w-xl rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 dark:border-zinc-600 dark:bg-zinc-950 dark:text-zinc-100"
+            placeholder="Search across this table"
+            aria-label="Search registered vendors"
+          />
+        </label>
+        <p className="shrink-0 text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+          Showing {filtered.length} of {vendors.length}
+        </p>
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -137,111 +227,103 @@ export function VendorAdminTable({
             </tr>
             <tr className="border-t border-zinc-200 bg-zinc-50/90 text-[10px] font-normal normal-case dark:border-zinc-700 dark:bg-zinc-900/80">
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.submitted}
-                  onChange={(e) => setColFilters((f) => ({ ...f, submitted: e.target.value }))}
-                  placeholder="Date…"
-                  aria-label="Filter submitted"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by submitted date"
+                  options={opt.submitted}
+                  selected={colFilters.submitted}
+                  onChange={(next) => setColFilters((f) => ({ ...f, submitted: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.updated}
-                  onChange={(e) => setColFilters((f) => ({ ...f, updated: e.target.value }))}
-                  placeholder="Date…"
-                  aria-label="Filter last updated"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by last updated"
+                  options={opt.updated}
+                  selected={colFilters.updated}
+                  onChange={(next) => setColFilters((f) => ({ ...f, updated: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.its}
-                  onChange={(e) => setColFilters((f) => ({ ...f, its: e.target.value }))}
-                  placeholder="ITS…"
-                  aria-label="Filter ITS"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by ITS number"
+                  options={opt.its}
+                  selected={colFilters.its}
+                  onChange={(next) => setColFilters((f) => ({ ...f, its: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.company}
-                  onChange={(e) => setColFilters((f) => ({ ...f, company: e.target.value }))}
-                  placeholder="Company…"
-                  aria-label="Filter company"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by company"
+                  options={opt.company}
+                  selected={colFilters.company}
+                  onChange={(next) => setColFilters((f) => ({ ...f, company: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.type}
-                  onChange={(e) => setColFilters((f) => ({ ...f, type: e.target.value }))}
-                  placeholder="Type…"
-                  aria-label="Filter vendor type"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by vendor type"
+                  options={opt.type}
+                  selected={colFilters.type}
+                  onChange={(next) => setColFilters((f) => ({ ...f, type: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.city}
-                  onChange={(e) => setColFilters((f) => ({ ...f, city: e.target.value }))}
-                  placeholder="City…"
-                  aria-label="Filter city"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by city"
+                  options={opt.city}
+                  selected={colFilters.city}
+                  onChange={(next) => setColFilters((f) => ({ ...f, city: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.state}
-                  onChange={(e) => setColFilters((f) => ({ ...f, state: e.target.value }))}
-                  placeholder="State…"
-                  aria-label="Filter state"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by state"
+                  options={opt.state}
+                  selected={colFilters.state}
+                  onChange={(next) => setColFilters((f) => ({ ...f, state: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.contact}
-                  onChange={(e) => setColFilters((f) => ({ ...f, contact: e.target.value }))}
-                  placeholder="Contact…"
-                  aria-label="Filter contact"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by contact"
+                  options={opt.contact}
+                  selected={colFilters.contact}
+                  onChange={(next) => setColFilters((f) => ({ ...f, contact: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.email}
-                  onChange={(e) => setColFilters((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="Email…"
-                  aria-label="Filter email"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by email"
+                  options={opt.email}
+                  selected={colFilters.email}
+                  onChange={(next) => setColFilters((f) => ({ ...f, email: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.gst}
-                  onChange={(e) => setColFilters((f) => ({ ...f, gst: e.target.value }))}
-                  placeholder="yes / no"
-                  aria-label="Filter GST registered"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by GST registered"
+                  options={opt.gst}
+                  selected={colFilters.gst}
+                  onChange={(next) => setColFilters((f) => ({ ...f, gst: next }))}
+                  variant="zinc"
                 />
               </th>
               <th className="px-1 py-1 align-top">
-                <select
-                  className={filterInputClass()}
-                  value={colFilters.status}
-                  onChange={(e) =>
-                    setColFilters((f) => ({ ...f, status: e.target.value as VendorColFilters["status"] }))
-                  }
-                  aria-label="Filter status"
-                >
-                  <option value="">All statuses</option>
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
+                <AdminChecklistFilter
+                  ariaLabel="Filter by status"
+                  options={opt.status}
+                  selected={colFilters.status}
+                  onChange={(next) => setColFilters((f) => ({ ...f, status: next }))}
+                  variant="zinc"
+                />
               </th>
               <th className="px-1 py-1 align-top text-zinc-400">—</th>
               <th className="px-1 py-1 align-top text-zinc-400">—</th>

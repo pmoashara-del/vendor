@@ -12,6 +12,7 @@ import {
   eoiCategorySummaryLine,
   selectionsSearchBlob,
 } from "@/lib/eoi/eoi-row-display";
+import { AdminChecklistFilter, type ChecklistSelection } from "@/components/admin/AdminChecklistFilter";
 import type { ExpressionOfInterestRow, EoiStatus } from "@/types/eoi";
 
 const STATUS_OPTIONS: EoiStatus[] = [
@@ -83,59 +84,97 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-const emptyEoiFilters = {
-  ref: "",
-  submitted: "",
-  updated: "",
-  business: "",
-  categories: "",
-  email: "",
-  its: "",
-  status: "" as "" | EoiStatus,
-  details: "",
-  actions: "",
+const emptyEoiFilters: Record<
+  "ref" | "submitted" | "updated" | "business" | "categories" | "email" | "its" | "status" | "details" | "actions",
+  ChecklistSelection
+> = {
+  ref: null,
+  submitted: null,
+  updated: null,
+  business: null,
+  categories: null,
+  email: null,
+  its: null,
+  status: null,
+  details: null,
+  actions: null,
 };
 
 type EoiColFilters = typeof emptyEoiFilters;
 
-function filterInputClass() {
-  return "w-full min-w-0 rounded border border-amber-200/90 bg-white px-1.5 py-1 text-[11px] text-zinc-900 placeholder:text-zinc-400 dark:border-amber-800 dark:bg-zinc-950 dark:text-zinc-100";
+function eoiDetailsFilterValue(s: ExpressionOfInterestRow): string {
+  const status = s.eoi_status.replaceAll("_", " ");
+  const meeting = s.meeting_invite_sent_at ? "Meeting invite sent" : "No meeting invite";
+  const token = s.registration_token_hash ? "Registration token issued" : "No registration token";
+  const used = s.registration_token_used_at ? "Registration link used" : "Registration link not used";
+  const vend = s.vendor_registration_id ? "Vendor registration linked" : "No vendor registration link";
+  return `${status} · ${meeting} · ${token} · ${used} · ${vend}`;
 }
 
-function eoiRowMatchesFilters(s: ExpressionOfInterestRow, f: EoiColFilters): boolean {
-  const q = (x: string) => x.trim().toLowerCase();
-  const inc = (hay: string | null | undefined, needle: string) => {
-    const n = q(needle);
-    if (!n) return true;
-    return (hay ?? "").toLowerCase().includes(n);
-  };
-  if (!inc(s.reference_number, f.ref)) return false;
-  const subFmt = formatDateTime(s.created_at).toLowerCase();
-  if (!inc(s.created_at, f.submitted) && !inc(subFmt, f.submitted)) return false;
-  const updFmt = formatDateTime(s.updated_at).toLowerCase();
-  if (!inc(s.updated_at, f.updated) && !inc(updFmt, f.updated)) return false;
-  if (!inc(s.business_name, f.business)) return false;
+function eoiActionsFilterValue(s: ExpressionOfInterestRow): string {
+  const table = s.meeting_invite_sent_at ? "Table session email on file" : "No table session email on file";
+  const reg = s.registration_token_used_at ? "Full registration link used" : "Full registration link not used";
+  return `${table} · ${reg}`;
+}
+
+function eoiGlobalSearchBlob(s: ExpressionOfInterestRow): string {
   const cats = eoiCategorySelectionsFromRow(s);
-  const catBlob = selectionsSearchBlob(cats);
-  const catLine = eoiCategorySummaryLine(s).toLowerCase();
-  if (!inc(catBlob, f.categories) && !inc(catLine, f.categories)) return false;
-  if (!inc(s.email, f.email)) return false;
-  const its = (s.its_number ?? "").replace(/\D/g, "");
-  const itsQ = f.its.replace(/\D/g, "");
-  if (itsQ && !its.includes(itsQ)) return false;
-  if (f.its.trim() && !itsQ && !inc(s.its_number, f.its)) return false;
-  if (f.status && s.eoi_status !== f.status) return false;
-  if (f.details.trim()) {
-    const blob = `${s.id} ${eoiWorkflowActionsSummary(s)}`.toLowerCase();
-    if (!blob.includes(f.details.trim().toLowerCase())) return false;
-  }
-  if (f.actions.trim()) {
-    const blob = [s.meeting_invite_sent_at, s.registration_token_used_at, s.vendor_registration_id]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    if (!blob.includes(f.actions.trim().toLowerCase())) return false;
-  }
+  const parts = [
+    s.reference_number,
+    formatDateTime(s.created_at),
+    formatDateTime(s.updated_at),
+    s.business_name,
+    eoiCategorySummaryLine(s),
+    selectionsSearchBlob(cats),
+    s.email,
+    s.its_number ?? "",
+    s.eoi_status.replaceAll("_", " "),
+    eoiDetailsFilterValue(s),
+    eoiActionsFilterValue(s),
+    s.id,
+    eoiWorkflowActionsSummary(s),
+  ];
+  return parts.join(" ").toLowerCase();
+}
+
+function matchesGlobalSearch(query: string, blob: string): boolean {
+  const t = query.trim().toLowerCase();
+  if (!t) return true;
+  return blob.includes(t);
+}
+
+function colMatch(sel: ChecklistSelection, cellValue: string): boolean {
+  if (sel == null) return true;
+  return sel.has(cellValue);
+}
+
+function eoiCellValues(s: ExpressionOfInterestRow) {
+  return {
+    ref: s.reference_number || "—",
+    submitted: formatDateTime(s.created_at),
+    updated: formatDateTime(s.updated_at),
+    business: s.business_name || "—",
+    categories: eoiCategorySummaryLine(s) || "—",
+    email: s.email || "—",
+    its: s.its_number ?? "—",
+    status: s.eoi_status.replaceAll("_", " "),
+    details: eoiDetailsFilterValue(s),
+    actions: eoiActionsFilterValue(s),
+  };
+}
+
+function eoiRowMatchesColumnFilters(s: ExpressionOfInterestRow, f: EoiColFilters): boolean {
+  const c = eoiCellValues(s);
+  if (!colMatch(f.ref, c.ref)) return false;
+  if (!colMatch(f.submitted, c.submitted)) return false;
+  if (!colMatch(f.updated, c.updated)) return false;
+  if (!colMatch(f.business, c.business)) return false;
+  if (!colMatch(f.categories, c.categories)) return false;
+  if (!colMatch(f.email, c.email)) return false;
+  if (!colMatch(f.its, c.its)) return false;
+  if (!colMatch(f.status, c.status)) return false;
+  if (!colMatch(f.details, c.details)) return false;
+  if (!colMatch(f.actions, c.actions)) return false;
   return true;
 }
 
@@ -289,15 +328,49 @@ export function EoiAdminPanel({
   submissions: ExpressionOfInterestRow[];
   onRefresh: () => Promise<void>;
 }) {
+  const [globalSearch, setGlobalSearch] = useState("");
   const [colFilters, setColFilters] = useState<EoiColFilters>(emptyEoiFilters);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const closeDetail = useCallback(() => setDetailId(null), []);
 
-  const filtered = useMemo(() => {
-    return submissions.filter((s) => eoiRowMatchesFilters(s, colFilters));
-  }, [submissions, colFilters]);
+  const searchPool = useMemo(
+    () => submissions.filter((s) => matchesGlobalSearch(globalSearch, eoiGlobalSearchBlob(s))),
+    [submissions, globalSearch],
+  );
+
+  const opt = useMemo(() => {
+    const refs: string[] = [];
+    const submitted: string[] = [];
+    const updated: string[] = [];
+    const business: string[] = [];
+    const categories: string[] = [];
+    const emails: string[] = [];
+    const its: string[] = [];
+    const status: string[] = [];
+    const details: string[] = [];
+    const actions: string[] = [];
+    for (const s of searchPool) {
+      const c = eoiCellValues(s);
+      refs.push(c.ref);
+      submitted.push(c.submitted);
+      updated.push(c.updated);
+      business.push(c.business);
+      categories.push(c.categories);
+      emails.push(c.email);
+      its.push(c.its);
+      status.push(c.status);
+      details.push(c.details);
+      actions.push(c.actions);
+    }
+    return { refs, submitted, updated, business, categories, emails, its, status, details, actions };
+  }, [searchPool]);
+
+  const filtered = useMemo(
+    () => searchPool.filter((s) => eoiRowMatchesColumnFilters(s, colFilters)),
+    [searchPool, colFilters],
+  );
 
   const detailRow = detailId ? (submissions.find((s) => s.id === detailId) ?? null) : null;
 
@@ -345,20 +418,14 @@ export function EoiAdminPanel({
     <section className="rounded-xl border border-amber-200 bg-amber-50/50 p-6 dark:border-amber-900/40 dark:bg-amber-950/20">
       {detailRow ? <EoiDetailModal row={detailRow} onClose={closeDetail} /> : null}
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
+        <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-amber-950 dark:text-amber-100">Expression of Interest (EOI)</h2>
           <p className="mt-1 max-w-2xl text-sm text-amber-900/90 dark:text-amber-200/80">
-            Shortlist vendors (e.g. by category), send <strong>table discussion</strong> email, then after the meeting
-            send the <strong>full registration</strong> link. Flow: EOI → shortlist → meeting invite → registration
-            invite → vendor completes form on <code className="text-xs">/vendor-registration?token=…</code>
-          </p>
-          <p className="mt-2 text-xs text-amber-800/90 dark:text-amber-300/90">
-            Use the filter row under the column headers. Excel export includes a <strong>workflow_actions_summary</strong>{" "}
-            column derived from status, invite timestamps, and registration linkage. Row count:{" "}
-            <strong>{filtered.length}</strong> of {submissions.length}.
+            Shortlist by category, send the table discussion email, then send the full registration link after your
+            review.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex shrink-0 flex-wrap gap-2">
           <button
             type="button"
             onClick={exportExcel}
@@ -368,14 +435,36 @@ export function EoiAdminPanel({
           </button>
           <button
             type="button"
-            onClick={() => setColFilters({ ...emptyEoiFilters })}
+            onClick={() => {
+              setGlobalSearch("");
+              setColFilters({ ...emptyEoiFilters });
+            }}
             className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-zinc-900 dark:text-amber-100 dark:hover:bg-zinc-800"
           >
-            Clear column filters
+            Clear search and filters
           </button>
         </div>
       </div>
       {msg ? <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">{msg}</p> : null}
+
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <label className="block min-w-0 flex-1 text-sm text-amber-950 dark:text-amber-100">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900/80 dark:text-amber-200/90">
+            Search
+          </span>
+          <input
+            type="search"
+            value={globalSearch}
+            onChange={(e) => setGlobalSearch(e.target.value)}
+            className="w-full max-w-xl rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm placeholder:text-zinc-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 dark:border-amber-800 dark:bg-zinc-950 dark:text-zinc-100"
+            placeholder="Search across this table"
+            aria-label="Search EOI submissions"
+          />
+        </label>
+        <p className="shrink-0 text-sm tabular-nums text-amber-900 dark:text-amber-200">
+          Showing {filtered.length} of {submissions.length}
+        </p>
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-amber-200/80 bg-white dark:border-amber-900/50 dark:bg-zinc-900">
         <table className="min-w-[1320px] w-full border-collapse text-left text-sm">
@@ -394,101 +483,93 @@ export function EoiAdminPanel({
             </tr>
             <tr className="border-t border-amber-200/60 bg-amber-50/90 dark:border-amber-800/60 dark:bg-amber-950/30">
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.ref}
-                  onChange={(e) => setColFilters((f) => ({ ...f, ref: e.target.value }))}
-                  placeholder="Contains…"
-                  aria-label="Filter by reference"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by reference"
+                  options={opt.refs}
+                  selected={colFilters.ref}
+                  onChange={(next) => setColFilters((f) => ({ ...f, ref: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.submitted}
-                  onChange={(e) => setColFilters((f) => ({ ...f, submitted: e.target.value }))}
-                  placeholder="Date text…"
-                  aria-label="Filter by submitted date"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by submitted date"
+                  options={opt.submitted}
+                  selected={colFilters.submitted}
+                  onChange={(next) => setColFilters((f) => ({ ...f, submitted: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.updated}
-                  onChange={(e) => setColFilters((f) => ({ ...f, updated: e.target.value }))}
-                  placeholder="Date text…"
-                  aria-label="Filter by last updated"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by last updated"
+                  options={opt.updated}
+                  selected={colFilters.updated}
+                  onChange={(next) => setColFilters((f) => ({ ...f, updated: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.business}
-                  onChange={(e) => setColFilters((f) => ({ ...f, business: e.target.value }))}
-                  placeholder="Contains…"
-                  aria-label="Filter by business name"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by business name"
+                  options={opt.business}
+                  selected={colFilters.business}
+                  onChange={(next) => setColFilters((f) => ({ ...f, business: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.categories}
-                  onChange={(e) => setColFilters((f) => ({ ...f, categories: e.target.value }))}
-                  placeholder="Category text…"
-                  aria-label="Filter by categories"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by categories"
+                  options={opt.categories}
+                  selected={colFilters.categories}
+                  onChange={(next) => setColFilters((f) => ({ ...f, categories: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.email}
-                  onChange={(e) => setColFilters((f) => ({ ...f, email: e.target.value }))}
-                  placeholder="Contains…"
-                  aria-label="Filter by email"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by email"
+                  options={opt.emails}
+                  selected={colFilters.email}
+                  onChange={(next) => setColFilters((f) => ({ ...f, email: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.its}
-                  onChange={(e) => setColFilters((f) => ({ ...f, its: e.target.value }))}
-                  placeholder="Digits…"
-                  aria-label="Filter by ITS number"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by ITS number"
+                  options={opt.its}
+                  selected={colFilters.its}
+                  onChange={(next) => setColFilters((f) => ({ ...f, its: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <select
-                  className={filterInputClass()}
-                  value={colFilters.status}
-                  onChange={(e) =>
-                    setColFilters((f) => ({ ...f, status: e.target.value as EoiColFilters["status"] }))
-                  }
-                  aria-label="Filter by status"
-                >
-                  <option value="">All statuses</option>
-                  {STATUS_OPTIONS.map((st) => (
-                    <option key={st} value={st}>
-                      {st.replaceAll("_", " ")}
-                    </option>
-                  ))}
-                </select>
-              </th>
-              <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.details}
-                  onChange={(e) => setColFilters((f) => ({ ...f, details: e.target.value }))}
-                  placeholder="Id / workflow…"
-                  aria-label="Filter details column"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by status"
+                  options={opt.status}
+                  selected={colFilters.status}
+                  onChange={(next) => setColFilters((f) => ({ ...f, status: next }))}
+                  variant="amber"
                 />
               </th>
               <th className="px-1 py-1 align-top font-normal normal-case">
-                <input
-                  className={filterInputClass()}
-                  value={colFilters.actions}
-                  onChange={(e) => setColFilters((f) => ({ ...f, actions: e.target.value }))}
-                  placeholder="Invite / reg…"
-                  aria-label="Filter actions column"
+                <AdminChecklistFilter
+                  ariaLabel="Filter by workflow summary"
+                  options={opt.details}
+                  selected={colFilters.details}
+                  onChange={(next) => setColFilters((f) => ({ ...f, details: next }))}
+                  variant="amber"
+                />
+              </th>
+              <th className="px-1 py-1 align-top font-normal normal-case">
+                <AdminChecklistFilter
+                  ariaLabel="Filter by invite and registration activity"
+                  options={opt.actions}
+                  selected={colFilters.actions}
+                  onChange={(next) => setColFilters((f) => ({ ...f, actions: next }))}
+                  variant="amber"
                 />
               </th>
             </tr>
