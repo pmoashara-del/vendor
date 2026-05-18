@@ -2,8 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
-import { ItsNumberGate } from "@/components/ItsNumberGate";
 import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
+import type { VendorRegistrationPrefill } from "@/lib/vendors/eoi-prefill-map";
+import {
+  VENDOR_DONTS,
+  VENDOR_DOS,
+  VENDOR_FAQ,
+  VENDOR_POLICY_ACCEPTANCE_LABEL,
+  VENDOR_POLICY_MATTERS,
+  VENDOR_REGISTRATION_POLICY_INTRO,
+  VENDOR_TDS_POLICY,
+} from "@/lib/vendors/vendor-registration-policy-text";
 import {
   buildGstinPrefix,
   DEFAULT_GST_STATE_CODE,
@@ -31,6 +40,7 @@ interface FormState {
   mobile_number: string;
   alternate_mobile: string;
   email: string;
+  its_number: string;
   website: string;
   pan_number: string;
   gst_registered: boolean;
@@ -90,6 +100,7 @@ const initial: FormState = {
   mobile_number: "+91",
   alternate_mobile: "",
   email: "",
+  its_number: "",
   website: "",
   pan_number: "",
   gst_registered: false,
@@ -143,6 +154,21 @@ function inputClass() {
 }
 
 /** When GST is enabled, keep GSTIN prefix aligned with PAN unless the user entered a valid GSTIN for another entity. Last three GSTIN characters are never auto-filled. */
+
+function formatIndianNumberDisplay(raw: string): string {
+  const d = raw.replace(/\D/g, "");
+  if (!d) return "";
+  const n = Number(d);
+  if (!Number.isFinite(n) || n < 0) return raw.trim();
+  return n.toLocaleString("en-IN");
+}
+
+function csvEscapeCell(s: string): string {
+  const t = s.replace(/\r\n/g, "\n");
+  if (/[",\n]/.test(t)) return `"${t.replace(/"/g, '""')}"`;
+  return t;
+}
+
 function applyPanChange(prev: FormState, panRaw: string): FormState {
   const pan = panRaw.toUpperCase().replace(/\s/g, "").slice(0, 10);
   const next: FormState = { ...prev, pan_number: pan };
@@ -166,12 +192,12 @@ function SectionTitle({ n, title }: { n: number; title: string }) {
   );
 }
 
-export function VendorRegistrationForm({ invitationToken }: { invitationToken: string }) {
+export function VendorRegistrationForm({ invitationToken = "" }: { invitationToken?: string }) {
   const [f, setF] = useState<FormState>(initial);
   const [categoryPickerError, setCategoryPickerError] = useState(false);
-  const [formUnlocked, setFormUnlocked] = useState(false);
-  const [itsNumber, setItsNumber] = useState("");
-  const [itsError, setItsError] = useState<string | null>(null);
+  const [prefillMobile, setPrefillMobile] = useState("");
+  const [prefillBusy, setPrefillBusy] = useState(false);
+  const [prefillMsg, setPrefillMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [ifscLookupBusy, setIfscLookupBusy] = useState(false);
@@ -181,23 +207,54 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     setF((p) => ({ ...p, [key]: value }));
   }
 
-  function unlockForm(digits: string) {
-    setItsNumber(digits);
-    setItsError(null);
-    setFormUnlocked(true);
+  function applyPrefill(prefill: VendorRegistrationPrefill) {
+    setF((prev) => ({
+      ...prev,
+      ...prefill,
+      category_selections: prefill.category_selections?.length
+        ? prefill.category_selections
+        : prev.category_selections,
+      gst_registered: prefill.gst_registered ?? prev.gst_registered,
+      gstin: prefill.gstin ?? prev.gstin,
+      msme_registered: prefill.msme_registered ?? prev.msme_registered,
+    }));
+    setCategoryPickerError(false);
   }
 
-  function continueFromIts() {
-    const digits = itsNumber.replace(/\D/g, "");
-    if (digits.length > 0 && digits.length !== 8) {
-      setItsError("ITS number must be exactly 8 digits, or leave blank if you are not from our community.");
+  async function fetchEoiPrefill() {
+    const digits = prefillMobile.replace(/\D/g, "").slice(-10);
+    if (digits.length !== 10) {
+      setPrefillMsg("Enter 10 digits of the mobile number used on your Expression of Interest.");
       return;
     }
-    unlockForm(digits);
-  }
-
-  function skipIts() {
-    unlockForm("");
+    setPrefillBusy(true);
+    setPrefillMsg(null);
+    try {
+      const res = await fetch("/api/vendors/eoi-prefill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mobile: digits }),
+      });
+      const data = (await res.json()) as {
+        found?: boolean;
+        prefill?: VendorRegistrationPrefill;
+        error?: string;
+      };
+      if (!res.ok) {
+        setPrefillMsg(data.error ?? "Lookup failed.");
+        return;
+      }
+      if (!data.found || !data.prefill) {
+        setPrefillMsg("No Expression of Interest found for this mobile. Fill the form manually.");
+        return;
+      }
+      applyPrefill(data.prefill);
+      setPrefillMsg("Details loaded from your latest EOI. Review every field before submitting.");
+    } catch {
+      setPrefillMsg("Network error. Try again.");
+    } finally {
+      setPrefillBusy(false);
+    }
   }
 
   function onPanIndia(v: boolean) {
@@ -217,10 +274,16 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
   }
 
   function setProgrammeMadhyaPradesh(checked: boolean) {
-    setF((p) => ({
-      ...p,
-      service_location_madhya_pradesh: p.service_location_pan_india ? true : checked,
-    }));
+    setF((p) => {
+      if (p.service_location_pan_india) {
+        return { ...p, service_location_madhya_pradesh: true };
+      }
+      const next = { ...p, service_location_madhya_pradesh: checked };
+      if (checked) {
+        next.service_location_indore = true;
+      }
+      return next;
+    });
   }
 
   /* eslint-disable react-hooks/set-state-in-effect -- IFSC field debounce: sync lookup state with code length/format */
@@ -302,8 +365,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
       const extra = f.additional_service_locations.trim();
       const body = {
         ...f,
-        its_number: itsNumber.trim() ? itsNumber.replace(/\D/g, "") : null,
-        invitation_token: invitationToken,
+        its_number: f.its_number.replace(/\D/g, "").length === 8 ? f.its_number.replace(/\D/g, "").slice(0, 8) : null,
+        invitation_token: invitationToken.trim(),
         aadhaar_linked_with_pan:
           f.aadhaar_linked_with_pan === "yes" || f.aadhaar_linked_with_pan === "no"
             ? f.aadhaar_linked_with_pan
@@ -330,9 +393,8 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
 
       setMsg({ type: "ok", text: "Registration submitted successfully. Our team will review your application." });
       setF(initial);
-      setFormUnlocked(false);
-      setItsNumber("");
-      setItsError(null);
+      setPrefillMobile("");
+      setPrefillMsg(null);
       setIfscLookup(null);
     } catch {
       setMsg({ type: "err", text: "Network error. Please try again." });
@@ -341,42 +403,103 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
     }
   }
 
-  if (!formUnlocked) {
-    return (
-      <ItsNumberGate
-        value={itsNumber}
-        onChange={setItsNumber}
-        onContinue={continueFromIts}
-        onSkip={skipIts}
-        error={itsError}
-      />
-    );
+  function downloadCsv() {
+    const lines: string[] = ["Field,Value"];
+    const entries: [string, string][] = [
+      ["Vendor / company name", f.company_name],
+      ["Vendor type", f.vendor_type],
+      ["Constitution of business", f.constitution_of_business],
+      ["Year of establishment", f.year_of_establishment],
+      ["Registered address", f.registered_address],
+      ["City", f.city],
+      ["State", f.state],
+      ["Country", f.country],
+      ["PIN", f.pin_code],
+      ["Primary contact", f.primary_contact_person],
+      ["Designation", f.contact_designation],
+      ["Mobile", f.mobile_number],
+      ["Alternate mobile", f.alternate_mobile],
+      ["Email", f.email],
+      ["ITS (optional)", f.its_number],
+      ["Website", f.website],
+      ["PAN", f.pan_number],
+      ["GST registered", f.gst_registered ? "Yes" : "No"],
+      ["GSTIN", f.gstin],
+      ["MSME registered", f.msme_registered ? "Yes" : "No"],
+      ["MSME number", f.msme_udyam_number],
+      ["Bank", f.bank_name],
+      ["Branch", f.branch_name],
+      ["Account holder", f.account_holder_name],
+      ["Account number", f.account_number],
+      ["IFSC", f.ifsc_code],
+      ["Account type", f.account_type],
+      ["Products / services", f.products_services_offered],
+      ["Additional locations", f.additional_service_locations],
+      ["Turnover FY23-24", f.turnover_fy_2023_24],
+      ["Turnover FY24-25", f.turnover_fy_2024_25],
+      ["Turnover FY25-26", f.turnover_fy_2025_26],
+    ];
+    for (const [k, v] of entries) {
+      lines.push(`${csvEscapeCell(k)},${csvEscapeCell(v)}`);
+    }
+    const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vendor-registration-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto max-w-3xl space-y-2 pb-24">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900/50">
-        <span className="text-zinc-700 dark:text-zinc-300">
-          {itsNumber ? (
-            <>
-              ITS number: <strong className="tabular-nums">{itsNumber}</strong>
-            </>
-          ) : (
-            "Continuing without ITS number"
-          )}
-        </span>
-        <button
-          type="button"
-          className="font-medium text-emerald-700 hover:underline dark:text-emerald-400"
-          onClick={() => setFormUnlocked(false)}
-        >
-          Change ITS
-        </button>
+    <form
+      id="vendor-registration-form"
+      onSubmit={onSubmit}
+      className="vendor-registration-print-root mx-auto max-w-3xl space-y-2 pb-24"
+    >
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+        <p className="font-semibold">Important: this form is not saved automatically.</p>
+        <p className="mt-1">
+          If you close or refresh the page before submitting, your entries may be lost. Use{" "}
+          <strong>Download CSV</strong> below to keep a copy, or use your browser&apos;s print / save as PDF before
+          closing. Your data is stored in the organisation database only after you click <strong>Submit registration</strong>{" "}
+          successfully.
+        </p>
       </div>
-      <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
-        Important: data is saved to the organisation database when you submit. Keep statutory documents ready;
-        mandatory document checkboxes confirm you will provide uploads when requested.
-      </p>
+
+      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-900/60">
+        <p className="font-medium text-zinc-900 dark:text-zinc-50">Already submitted an Expression of Interest?</p>
+        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+          Enter the <strong>same 10-digit mobile number</strong> you used on the EOI. We will load matching fields
+          (name, address, contact, PAN, GST, categories, etc.) so you can review and complete the rest.
+        </p>
+        <div className="mt-3 flex max-w-md flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label className={labelClass()}>Mobile (EOI)</label>
+            <input
+              className={inputClass()}
+              inputMode="numeric"
+              autoComplete="tel"
+              value={prefillMobile}
+              onChange={(e) => setPrefillMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              placeholder="10-digit mobile"
+              maxLength={10}
+            />
+          </div>
+          <button
+            type="button"
+            disabled={prefillBusy}
+            onClick={() => void fetchEoiPrefill()}
+            className="rounded-lg bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
+          >
+            {prefillBusy ? "Looking up…" : "Fetch from EOI"}
+          </button>
+        </div>
+        {prefillMsg ? <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">{prefillMsg}</p> : null}
+      </div>
 
       <SectionTitle n={1} title="Vendor basic details" />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -523,7 +646,24 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             className={inputClass()}
             value={f.email}
             onChange={(e) => set("email", e.target.value)}
+            placeholder="name@gmail.com"
           />
+          <p className="mt-1 text-xs text-zinc-500">
+            Use a full valid address (for example <span className="font-mono">name@gmail.com</span>) or your
+            organisation domain.
+          </p>
+        </div>
+        <div>
+          <label className={labelClass()}>ITS number (optional)</label>
+          <input
+            className={inputClass()}
+            inputMode="numeric"
+            maxLength={8}
+            value={f.its_number}
+            onChange={(e) => set("its_number", e.target.value.replace(/\D/g, "").slice(0, 8))}
+            placeholder="8 digits, community members only"
+          />
+          <p className="mt-1 text-xs text-zinc-500">Leave blank if not applicable.</p>
         </div>
         <div>
           <label className={labelClass()}>Website</label>
@@ -573,6 +713,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             <option value="no">No</option>
             <option value="yes">Yes</option>
           </select>
+          <p className="mt-1 text-xs text-zinc-500">GST stays “No” until you choose Yes; a valid PAN helps pre-fill GSTIN.</p>
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>GSTIN</label>
@@ -622,7 +763,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
           <label className={labelClass()}>TAN number, if applicable</label>
           <input className={inputClass()} value={f.tan_number} onChange={(e) => set("tan_number", e.target.value)} />
         </div>
-        <div>
+        <div className="sm:col-span-2">
           <label className={labelClass()}>TDS applicability (notes)</label>
           <input
             className={inputClass()}
@@ -630,6 +771,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             onChange={(e) => set("tds_applicability", e.target.value)}
             placeholder="As applicable"
           />
+          <p className="mt-1 text-xs text-zinc-500">
+            TDS shall be deducted wherever applicable as per prevailing statutory norms. If PAN and Aadhaar are not
+            linked, higher TDS shall be deducted as per applicable norms.
+          </p>
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Is Aadhaar linked with PAN? *</label>
@@ -644,6 +789,9 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
             <option value="no">No</option>
             <option value="unknown">Unknown / pending verification</option>
           </select>
+          <p className="mt-1 text-xs text-zinc-500">
+            If PAN and Aadhaar are not linked, higher TDS shall be deducted as per applicable norms.
+          </p>
         </div>
       </div>
 
@@ -832,6 +980,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
               </span>
             </span>
           </label>
+          <p className="mt-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
+            If PAN India is selected, Madhya Pradesh and Indore are treated as applicable. If only Madhya Pradesh is
+            selected, Indore is automatically included for this programme.
+          </p>
 
           <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-700">
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -855,6 +1007,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
         </div>
         <div className="sm:col-span-2">
           <label className={labelClass()}>Annual turnover — last three years</label>
+          <p className="mb-2 text-xs text-zinc-500">
+            Enter amounts as digits (commas optional). On blur, values format in Indian style (e.g. 10000000 →
+            1,00,00,000).
+          </p>
           <div className="grid gap-2 sm:grid-cols-3">
             <div>
               <span className="text-xs text-zinc-500">FY 2023-24</span>
@@ -862,6 +1018,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
                 className={inputClass()}
                 value={f.turnover_fy_2023_24}
                 onChange={(e) => set("turnover_fy_2023_24", e.target.value)}
+                onBlur={() => set("turnover_fy_2023_24", formatIndianNumberDisplay(f.turnover_fy_2023_24))}
                 placeholder="e.g. 10000000"
               />
             </div>
@@ -871,6 +1028,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
                 className={inputClass()}
                 value={f.turnover_fy_2024_25}
                 onChange={(e) => set("turnover_fy_2024_25", e.target.value)}
+                onBlur={() => set("turnover_fy_2024_25", formatIndianNumberDisplay(f.turnover_fy_2024_25))}
               />
             </div>
             <div>
@@ -879,6 +1037,7 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
                 className={inputClass()}
                 value={f.turnover_fy_2025_26}
                 onChange={(e) => set("turnover_fy_2025_26", e.target.value)}
+                onBlur={() => set("turnover_fy_2025_26", formatIndianNumberDisplay(f.turnover_fy_2025_26))}
               />
             </div>
           </div>
@@ -1006,34 +1165,64 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
         ) : null}
       </div>
 
-      <SectionTitle n={8} title="Policy matters" />
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-200">
-        <p className="mb-2 font-medium">Vendor registration policy</p>
-        <p className="mb-3">
-          Registration is subject to verification of documents, bank details, suitability, pricing discipline, conduct,
-          and management approval. Submission does not guarantee approval, purchase orders, or allocation. Payments are
-          processed only per approved terms, invoices, compliance, and satisfactory delivery.
-        </p>
-        <p className="mb-2 font-medium">TDS policy</p>
-        <p className="mb-3">
-          TDS is deducted wherever applicable. If PAN and Aadhaar are not linked, higher TDS may apply per statutory
-          norms.
-        </p>
-        <label className="mt-2 flex items-start gap-2 font-medium">
+      <SectionTitle n={8} title="Policy matters, Do&apos;s &amp; Don&apos;ts, and FAQ" />
+      <div className="max-h-[min(28rem,70vh)] space-y-4 overflow-y-auto rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-200">
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">Vendor registration policy</p>
+          <p className="mt-1 leading-relaxed">{VENDOR_REGISTRATION_POLICY_INTRO}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">TDS policy</p>
+          <p className="mt-1 leading-relaxed">{VENDOR_TDS_POLICY}</p>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">Do&apos;s</p>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {VENDOR_DOS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">Don&apos;ts</p>
+          <ul className="mt-1 list-inside list-disc space-y-1">
+            {VENDOR_DONTS.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">FAQ</p>
+          <ul className="mt-1 list-inside list-disc space-y-2">
+            {VENDOR_FAQ.map((item) => (
+              <li key={item.q}>
+                <span className="font-medium">{item.q}</span> {item.a}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="font-semibold text-zinc-900 dark:text-zinc-50">Policy matters</p>
+          <p className="mt-1 leading-relaxed">{VENDOR_POLICY_MATTERS}</p>
+        </div>
+        <label className="flex items-start gap-2 border-t border-zinc-200 pt-3 font-medium dark:border-zinc-700">
           <input
             type="checkbox"
             checked={f.policy_accepted}
             onChange={(e) => set("policy_accepted", e.target.checked)}
             required
           />
-          <span>
-            I have read and accepted the Vendor Registration Policy, TDS policy, Do&apos;s &amp; Don&apos;ts, FAQ, and
-            approval conditions. *
-          </span>
+          <span>{VENDOR_POLICY_ACCEPTANCE_LABEL} *</span>
         </label>
       </div>
 
       <SectionTitle n={9} title="Declaration" />
+      <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+        I / we hereby declare that the information provided above is true and correct to the best of my / our
+        knowledge. I / we agree to comply with the organisation&apos;s procurement, billing, tax, documentation, and
+        payment procedures. I / we understand that submission of this form does not guarantee vendor approval or
+        business allocation.
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass()}>Authorised person name *</label>
@@ -1086,10 +1275,10 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 flex flex-wrap gap-3 border-t border-zinc-200 bg-white/90 py-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
+      <div className="print:hidden sticky bottom-0 flex flex-wrap gap-3 border-t border-zinc-200 bg-white/90 py-4 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/90">
         <button
           type="submit"
-          disabled={busy || !invitationToken.trim()}
+          disabled={busy}
           className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60"
         >
           {busy ? "Submitting…" : "Submit registration"}
@@ -1097,13 +1286,27 @@ export function VendorRegistrationForm({ invitationToken }: { invitationToken: s
         <button
           type="button"
           className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
+          onClick={downloadCsv}
+        >
+          Download CSV (Excel)
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
+          onClick={() => window.print()}
+        >
+          Print / Save as PDF
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-900"
           onClick={() => {
             setF(initial);
             setMsg(null);
+            setPrefillMobile("");
+            setPrefillMsg(null);
             setIfscLookup(null);
-            setFormUnlocked(false);
-            setItsNumber("");
-            setItsError(null);
+            setCategoryPickerError(false);
           }}
         >
           Reset form

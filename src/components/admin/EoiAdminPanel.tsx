@@ -422,7 +422,8 @@ export function EoiAdminPanel({
           <h2 className="text-lg font-semibold text-amber-950 dark:text-amber-100">Expression of Interest (EOI)</h2>
           <p className="mt-1 max-w-2xl text-sm text-amber-900/90 dark:text-amber-200/80">
             Shortlist by category, send the table discussion email, then send the full registration link after your
-            review.
+            review. Vendors may also open <code className="text-xs">/vendor-registration</code> for direct registration
+            (without EOI) or use <code className="text-xs">/vendor-registration?token=…</code> from the invitation email.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">

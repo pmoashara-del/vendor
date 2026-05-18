@@ -4,67 +4,14 @@ import {
   legacyMainCategoriesSummary,
 } from "@/lib/eoi/eoi-main-sub-categories";
 import { sendVendorRegistrationEmail } from "@/lib/email/resend-notifications";
+import type { VendorRegistrationPayload } from "@/lib/schemas/vendor-registration";
 import { vendorRegistrationPayloadSchema } from "@/lib/schemas/vendor-registration";
 import { createServiceSupabase } from "@/lib/supabase/service";
 import { hashInviteToken } from "@/lib/tokens/eoi-invite";
 
-export async function POST(req: Request) {
-  let json: unknown;
-  try {
-    json = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const parsed = vendorRegistrationPayloadSchema.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.error.flatten() },
-      { status: 422 },
-    );
-  }
-
-  const p = parsed.data;
-  const tokenHash = hashInviteToken(p.invitation_token);
-  const emailNorm = p.email.trim().toLowerCase();
-
-  const supabase = createServiceSupabase();
-
-  const { data: eoi, error: eoiErr } = await supabase
-    .from("expression_of_interest")
-    .select("id, email, eoi_status, registration_token_used_at, registration_token_expires_at")
-    .eq("registration_token_hash", tokenHash)
-    .maybeSingle();
-
-  if (eoiErr || !eoi) {
-    return NextResponse.json(
-      { error: "Invalid or unknown invitation. Open the registration link from your committee email." },
-      { status: 403 },
-    );
-  }
-
-  if (eoi.eoi_status !== "invited_to_register") {
-    return NextResponse.json({ error: "This invitation is no longer valid for registration." }, { status: 403 });
-  }
-
-  if (eoi.registration_token_used_at) {
-    return NextResponse.json({ error: "This registration link has already been used." }, { status: 403 });
-  }
-
-  const exp = eoi.registration_token_expires_at as string | null;
-  if (exp && new Date(exp).getTime() < Date.now()) {
-    return NextResponse.json({ error: "This registration link has expired. Contact the committee." }, { status: 403 });
-  }
-
-  if (String(eoi.email).toLowerCase() !== emailNorm) {
-    return NextResponse.json(
-      { error: "Email must match the Expression of Interest on file for this invitation." },
-      { status: 403 },
-    );
-  }
-
-  const row = {
-    eoi_id: eoi.id as string,
+function buildInsertRow(p: VendorRegistrationPayload, emailNorm: string, eoiId: string | null) {
+  return {
+    eoi_id: eoiId,
     its_number: p.its_number,
     company_name: p.company_name,
     vendor_type: p.vendor_type,
@@ -126,6 +73,111 @@ export async function POST(req: Request) {
     declaration_date: p.declaration_date,
     declaration_place: p.declaration_place,
   };
+}
+
+export async function POST(req: Request) {
+  let json: unknown;
+  try {
+    json = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = vendorRegistrationPayloadSchema.safeParse(json);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", details: parsed.error.flatten() },
+      { status: 422 },
+    );
+  }
+
+  const p = parsed.data;
+  const emailNorm = p.email.trim().toLowerCase();
+  const invite = p.invitation_token.trim();
+  const hasInvite = invite.length >= 32;
+
+  const supabase = createServiceSupabase();
+
+  if (hasInvite) {
+    const tokenHash = hashInviteToken(invite);
+
+    const { data: eoi, error: eoiErr } = await supabase
+      .from("expression_of_interest")
+      .select("id, email, eoi_status, registration_token_used_at, registration_token_expires_at")
+      .eq("registration_token_hash", tokenHash)
+      .maybeSingle();
+
+    if (eoiErr || !eoi) {
+      return NextResponse.json(
+        { error: "Invalid or unknown invitation. Open the registration link from your committee email." },
+        { status: 403 },
+      );
+    }
+
+    if (eoi.eoi_status !== "invited_to_register") {
+      return NextResponse.json({ error: "This invitation is no longer valid for registration." }, { status: 403 });
+    }
+
+    if (eoi.registration_token_used_at) {
+      return NextResponse.json({ error: "This registration link has already been used." }, { status: 403 });
+    }
+
+    const exp = eoi.registration_token_expires_at as string | null;
+    if (exp && new Date(exp).getTime() < Date.now()) {
+      return NextResponse.json(
+        { error: "This registration link has expired. Contact the committee." },
+        { status: 403 },
+      );
+    }
+
+    if (String(eoi.email).toLowerCase() !== emailNorm) {
+      return NextResponse.json(
+        { error: "Email must match the Expression of Interest on file for this invitation." },
+        { status: 403 },
+      );
+    }
+
+    const row = buildInsertRow(p, emailNorm, eoi.id as string);
+
+    try {
+      const { data: inserted, error } = await supabase.from("vendor_registration").insert(row).select("id").single();
+
+      if (error || !inserted?.id) {
+        console.error("Supabase insert error:", error);
+        return NextResponse.json(
+          { error: "Could not save registration. Check Supabase configuration and migration (eoi_id column)." },
+          { status: 500 },
+        );
+      }
+
+      await supabase
+        .from("expression_of_interest")
+        .update({
+          eoi_status: "registered",
+          registration_token_used_at: new Date().toISOString(),
+          vendor_registration_id: inserted.id,
+          registration_token_hash: null,
+          registration_token_expires_at: null,
+        })
+        .eq("id", eoi.id);
+
+      const emailResult = await sendVendorRegistrationEmail({
+        to: emailNorm,
+        companyName: p.company_name,
+        contactName: p.primary_contact_person,
+      });
+      if (!emailResult.ok) {
+        console.warn("Registration saved but confirmation email was not sent:", emailResult.error);
+      }
+
+      return NextResponse.json({ ok: true, emailSent: emailResult.ok, viaInvitation: true }, { status: 201 });
+    } catch (e) {
+      console.error(e);
+      return NextResponse.json({ error: "Server configuration error" }, { status: 500 });
+    }
+  }
+
+  const row = buildInsertRow(p, emailNorm, null);
 
   try {
     const { data: inserted, error } = await supabase.from("vendor_registration").insert(row).select("id").single();
@@ -138,17 +190,6 @@ export async function POST(req: Request) {
       );
     }
 
-    await supabase
-      .from("expression_of_interest")
-      .update({
-        eoi_status: "registered",
-        registration_token_used_at: new Date().toISOString(),
-        vendor_registration_id: inserted.id,
-        registration_token_hash: null,
-        registration_token_expires_at: null,
-      })
-      .eq("id", eoi.id);
-
     const emailResult = await sendVendorRegistrationEmail({
       to: emailNorm,
       companyName: p.company_name,
@@ -158,7 +199,7 @@ export async function POST(req: Request) {
       console.warn("Registration saved but confirmation email was not sent:", emailResult.error);
     }
 
-    return NextResponse.json({ ok: true, emailSent: emailResult.ok }, { status: 201 });
+    return NextResponse.json({ ok: true, emailSent: emailResult.ok, viaInvitation: false }, { status: 201 });
   } catch (e) {
     console.error(e);
     return NextResponse.json({ error: "Server configuration error" }, { status: 500 });

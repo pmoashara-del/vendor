@@ -56,3 +56,9 @@ body {
   background: var(--vp-background);
   color: var(--vp-on-surface);
 }
+
+@media print {
+  .print\:hidden {
+    display: none !important;
+  }
+}

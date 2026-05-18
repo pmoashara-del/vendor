@@ -159,8 +159,8 @@ export const vendorRegistrationPayloadSchema = z
 
     policy_accepted: z.boolean().refine((v) => v === true, { message: "Accept policies to continue" }),
 
-    /** From invitation email after committee meeting — required for new full registrations */
-    invitation_token: z.string().min(32, "Use the registration link from your invitation email"),
+    /** Present when registering via committee email link; omit or empty for direct registration */
+    invitation_token: z.preprocess((v) => (v == null || v === undefined ? "" : String(v).trim()), z.string()),
 
     declaration_authorized_person_name: z.string().min(1).max(200),
     declaration_designation: z.string().min(1).max(200),
