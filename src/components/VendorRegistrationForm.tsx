@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
 import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
 import type { VendorRegistrationPrefill } from "@/lib/vendors/eoi-prefill-map";
+import { isWellFormedEoiReference, normalizeEoiReference } from "@/lib/vendors/eoi-reference-format";
 import {
   VENDOR_DONTS,
   VENDOR_DOS,
@@ -220,12 +221,16 @@ export function VendorRegistrationForm({
   const linkedFromEoi = linkedEoiReference !== null;
 
   useEffect(() => {
+    if (hasInvite) {
+      void fetchEoiByReference(undefined, invitationToken);
+      return;
+    }
     const t = initialEoiReference.trim();
-    if (!t || hasInvite) return;
+    if (!t) return;
     setEoiRefInput(t);
     void fetchEoiByReference(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run when ?eoi= is present on first load
-  }, [initialEoiReference, hasInvite]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once from ?eoi= or ?token=
+  }, [initialEoiReference, hasInvite, invitationToken]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setF((p) => ({ ...p, [key]: value }));
@@ -245,58 +250,81 @@ export function VendorRegistrationForm({
     setCategoryPickerError(false);
   }
 
-  async function fetchEoiByReference(referenceOverride?: string) {
-    const raw = (referenceOverride ?? eoiRefInput).trim();
-    if (raw.length < 8) {
-      setPrefillMsg("Enter the full EOI reference (for example EOI-2026-ABC123) from your confirmation screen.");
+  type EoiLookupResponse = {
+    found?: boolean;
+    prefill?: VendorRegistrationPrefill;
+    summary_lines?: { label: string; value: string }[];
+    reference_number?: string;
+    service_location_pan_india?: boolean;
+    service_location_madhya_pradesh?: boolean;
+    service_location_indore?: boolean;
+    service_location_other?: boolean;
+    additional_service_locations?: string | null;
+    error?: string;
+  };
+
+  function applyEoiLookupResponse(data: EoiLookupResponse) {
+    if (!data.found || !data.prefill || !data.summary_lines || !data.reference_number) {
+      setPrefillMsg(data.error ?? "Could not load this EOI.");
+      setLinkedEoiReference(null);
+      setEoiSummaryLines(null);
       return;
     }
+    applyPrefill(data.prefill);
+    setF((p) => ({
+      ...p,
+      service_location_pan_india: data.service_location_pan_india ?? p.service_location_pan_india,
+      service_location_madhya_pradesh: data.service_location_madhya_pradesh ?? p.service_location_madhya_pradesh,
+      service_location_indore: data.service_location_indore ?? p.service_location_indore,
+      service_location_other: data.service_location_other ?? p.service_location_other,
+      additional_service_locations: data.additional_service_locations ?? p.additional_service_locations ?? "",
+    }));
+    setLinkedEoiReference(data.reference_number);
+    setEoiSummaryLines(data.summary_lines);
+    setPrefillMsg(
+      "EOI linked. Details from your Expression of Interest are shown below — complete only the sections that follow.",
+    );
+  }
+
+  async function fetchEoiByReference(referenceOverride?: string, tokenOverride?: string) {
+    const token = (tokenOverride ?? invitationToken).trim();
+    const raw = (referenceOverride ?? eoiRefInput).trim();
+
+    let body: Record<string, string>;
+    if (token.length >= 32) {
+      body = { invitation_token: token };
+    } else {
+      const refNorm = normalizeEoiReference(raw);
+      if (!isWellFormedEoiReference(refNorm)) {
+        setPrefillMsg(
+          "Enter the full EOI reference exactly as on your confirmation (for example EOI-2026-ABC123 — 6 letters or digits after the year).",
+        );
+        return;
+      }
+      body = { reference: refNorm };
+    }
+
     setPrefillBusy(true);
     setPrefillMsg(null);
     try {
       const res = await fetch("/api/vendors/eoi-by-reference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference: raw }),
+        body: JSON.stringify(body),
       });
-      const data = (await res.json()) as {
-        found?: boolean;
-        prefill?: VendorRegistrationPrefill;
-        summary_lines?: { label: string; value: string }[];
-        reference_number?: string;
-        service_location_pan_india?: boolean;
-        service_location_madhya_pradesh?: boolean;
-        service_location_indore?: boolean;
-        service_location_other?: boolean;
-        additional_service_locations?: string | null;
-        error?: string;
-      };
+      const data = (await res.json()) as EoiLookupResponse;
       if (!res.ok) {
-        setPrefillMsg(data.error ?? "Lookup failed.");
+        setPrefillMsg(
+          data.error ??
+            (res.status === 404
+              ? "No EOI found for that reference. Check the format and try again."
+              : "Lookup failed."),
+        );
         setLinkedEoiReference(null);
         setEoiSummaryLines(null);
         return;
       }
-      if (!data.found || !data.prefill || !data.summary_lines || !data.reference_number) {
-        setPrefillMsg(data.error ?? "Could not load this EOI.");
-        setLinkedEoiReference(null);
-        setEoiSummaryLines(null);
-        return;
-      }
-      applyPrefill(data.prefill);
-      setF((p) => ({
-        ...p,
-        service_location_pan_india: data.service_location_pan_india ?? p.service_location_pan_india,
-        service_location_madhya_pradesh: data.service_location_madhya_pradesh ?? p.service_location_madhya_pradesh,
-        service_location_indore: data.service_location_indore ?? p.service_location_indore,
-        service_location_other: data.service_location_other ?? p.service_location_other,
-        additional_service_locations: data.additional_service_locations ?? p.additional_service_locations ?? "",
-      }));
-      setLinkedEoiReference(data.reference_number);
-      setEoiSummaryLines(data.summary_lines);
-      setPrefillMsg(
-        "EOI linked. Fields you already submitted on the EOI are shown as a summary below — complete the remaining sections and submit.",
-      );
+      applyEoiLookupResponse(data);
     } catch {
       setPrefillMsg("Network error. Try again.");
       setLinkedEoiReference(null);
@@ -1307,15 +1335,13 @@ export function VendorRegistrationForm({
         </>
       ) : (
         <>
-          <SectionTitle title="Financial details & programme coverage" />
-          <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50/90 p-4 text-sm dark:border-zinc-600 dark:bg-zinc-900/50">
-            <p className="font-medium text-zinc-900 dark:text-zinc-50">Aligned with your EOI</p>
-            <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-              Broad industries, vendor types, capability text, and programme geography were submitted on your Expression
-              of Interest and are stored with this registration. Enter <strong>exact annual figures</strong> below (not
-              collected on the EOI).
-            </p>
-            <ul className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+          <SectionTitle title="Financial details (not on EOI)" />
+          <p className="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+            Programme geography and offerings are in your EOI summary above.
+          </p>
+          <div className="hidden" aria-hidden>
+            <p className="sr-only">EOI programme alignment</p>
+            <ul className="hidden">
               <li className="rounded-md bg-white px-3 py-2 dark:bg-zinc-950">
                 <span className="font-semibold text-zinc-800 dark:text-zinc-200">Indore (programme)</span>
                 <span className="text-zinc-600 dark:text-zinc-400"> — {f.service_location_indore ? "Yes" : "No"}</span>

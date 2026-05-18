@@ -1,21 +1,8 @@
+import { eoiCategorySummaryLine } from "@/lib/eoi/eoi-row-display";
 import { createServiceSupabase } from "@/lib/supabase/service";
 import { mapEoiRowToVendorPrefill } from "@/lib/vendors/eoi-prefill-map";
-
-const REF_PATTERN = /^EOI-\d{4}-[A-F0-9]{6}$/;
-
-/** Normalise user input to match stored `reference_number` (e.g. EOI-2026-A1B2C3). */
-export function normalizeEoiReference(raw: string): string {
-  const t = raw.trim().toUpperCase().replace(/[\s\u200b]+/g, "");
-  if (REF_PATTERN.test(t)) return t;
-  const compact = t.replace(/-/g, "");
-  const m = compact.match(/^EOI(\d{4})([A-F0-9]{6})$/);
-  if (m) return `EOI-${m[1]}-${m[2]}`;
-  return t;
-}
-
-export function isWellFormedEoiReference(ref: string): boolean {
-  return REF_PATTERN.test(normalizeEoiReference(ref));
-}
+import { hashInviteToken } from "@/lib/tokens/eoi-invite";
+export { isWellFormedEoiReference, normalizeEoiReference } from "@/lib/vendors/eoi-reference-format";
 
 export type EoiRowForVendorLink = {
   id: string;
@@ -45,30 +32,10 @@ export type EoiRowForVendorLink = {
   turnover_range: string | null;
 };
 
-const EOI_SELECT_FOR_VENDOR =
-  "id, reference_number, eoi_status, vendor_registration_id, email, mobile, pan_number, business_name, entity_type, year_established, business_address, business_city, business_state, contact_person_name, contact_role, its_number, gst_number, gst_status, msme_status, category_selections, capability_description, can_work_in_programme_location, also_supplies_other_locations, other_supply_locations_detail, turnover_range";
-
-export async function fetchEoiByReferenceForVendorLink(
-  refNorm: string,
-): Promise<
-  | { ok: true; row: EoiRowForVendorLink }
-  | {
-      ok: false;
-      reason: "not_found" | "already_registered" | "use_invite_link" | "not_eligible";
-    }
-> {
-  const supabase = createServiceSupabase();
-  const { data, error } = await supabase
-    .from("expression_of_interest")
-    .select(EOI_SELECT_FOR_VENDOR)
-    .eq("reference_number", refNorm)
-    .maybeSingle();
-
-  if (error || !data) {
-    return { ok: false, reason: "not_found" };
-  }
-
-  const row = data as EoiRowForVendorLink;
+function evaluateEoiRow(row: EoiRowForVendorLink): { ok: true; row: EoiRowForVendorLink } | {
+  ok: false;
+  reason: "already_registered" | "use_invite_link" | "not_eligible";
+} {
 
   if (row.vendor_registration_id) {
     return { ok: false, reason: "already_registered" };
@@ -83,6 +50,76 @@ export async function fetchEoiByReferenceForVendorLink(
   }
 
   if (row.eoi_status === "declined") {
+    return { ok: false, reason: "not_eligible" };
+  }
+
+  return { ok: true, row };
+}
+
+export async function fetchEoiByReferenceForVendorLink(
+  refNorm: string,
+): Promise<
+  | { ok: true; row: EoiRowForVendorLink }
+  | {
+      ok: false;
+      reason: "not_found" | "already_registered" | "use_invite_link" | "not_eligible";
+    }
+> {
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("expression_of_interest")
+    .select("*")
+    .eq("reference_number", refNorm)
+    .maybeSingle();
+
+  if (error) {
+    console.error("fetchEoiByReference:", refNorm, error);
+    throw error;
+  }
+  if (!data) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const evaluated = evaluateEoiRow(data as EoiRowForVendorLink);
+  if (!evaluated.ok) return evaluated;
+  return evaluated;
+}
+
+/** Load EOI for committee registration links (`?token=…`). */
+export async function fetchEoiByInvitationToken(
+  token: string,
+): Promise<
+  | { ok: true; row: EoiRowForVendorLink }
+  | { ok: false; reason: "not_found" | "already_registered" | "not_eligible" }
+> {
+  const trimmed = token.trim();
+  if (trimmed.length < 32) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const supabase = createServiceSupabase();
+  const { data, error } = await supabase
+    .from("expression_of_interest")
+    .select("*")
+    .eq("registration_token_hash", hashInviteToken(trimmed))
+    .maybeSingle();
+
+  if (error) {
+    console.error("fetchEoiByInvitationToken:", error);
+    throw error;
+  }
+  if (!data) {
+    return { ok: false, reason: "not_found" };
+  }
+
+  const row = data as EoiRowForVendorLink;
+  if (row.vendor_registration_id || row.eoi_status === "registered") {
+    return { ok: false, reason: "already_registered" };
+  }
+  if (row.eoi_status === "declined") {
+    return { ok: false, reason: "not_eligible" };
+  }
+  if (row.eoi_status !== "invited_to_register") {
     return { ok: false, reason: "not_eligible" };
   }
 
@@ -135,6 +172,8 @@ export function buildEoiSummaryLines(row: EoiRowForVendorLink): { label: string;
     { label: "Email", value: row.email },
   ];
   if (row.its_number) lines.push({ label: "ITS number", value: row.its_number });
+  const catLine = eoiCategorySummaryLine(row as unknown as import("@/types/eoi").ExpressionOfInterestRow);
+  if (catLine) lines.push({ label: "Categories (EOI)", value: catLine });
   lines.push({ label: "PAN", value: row.pan_number });
   lines.push({ label: "GST status", value: row.gst_status });
   if (row.gst_number) lines.push({ label: "GSTIN", value: row.gst_number });
