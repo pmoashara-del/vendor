@@ -71,7 +71,11 @@ export function mapEoiRowToVendorPrefill(row: Record<string, unknown>): VendorRe
   }
 
   const yr = row.year_established;
-  if (typeof yr === "number" && Number.isFinite(yr)) out.year_of_establishment = String(yr);
+  if (typeof yr === "number" && Number.isFinite(yr)) {
+    out.year_of_establishment = String(yr);
+  } else if (typeof yr === "string" && /^\d{4}$/.test(yr.trim())) {
+    out.year_of_establishment = yr.trim();
+  }
 
   const addr = row.business_address;
   if (typeof addr === "string" && addr.trim()) out.registered_address = addr.trim();

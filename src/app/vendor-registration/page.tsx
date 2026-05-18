@@ -18,7 +18,8 @@ function VendorRegistrationWithToken() {
       ) : (
         <div className="mb-6 rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
           You may register <strong>directly</strong> here without submitting an Expression of Interest. If you already
-          submitted an EOI, you can optionally fetch matching details using your mobile number below the form intro. You
+          submitted an EOI, you can optionally fetch matching details using your EOI reference or mobile number below the
+          form intro. You
           may still start an{" "}
           <Link href="/expression-of-interest" className="font-semibold text-emerald-700 underline dark:text-emerald-400">
             Expression of Interest

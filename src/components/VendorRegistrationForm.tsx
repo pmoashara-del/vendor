@@ -3,6 +3,12 @@
 import { useEffect, useState } from "react";
 import { CategorySelectionsPicker } from "@/components/CategorySelectionsPicker";
 import { isValidCategorySelectionsList, type CategorySelection } from "@/lib/eoi/eoi-main-sub-categories";
+import {
+  isEoiReferenceInput,
+  mobileDigitsFromInput,
+  normalizeEoiReference,
+  sanitizePrefillLookupInput,
+} from "@/lib/vendors/eoi-prefill-lookup";
 import type { VendorRegistrationPrefill } from "@/lib/vendors/eoi-prefill-map";
 import {
   VENDOR_DONTS,
@@ -221,10 +227,43 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
     setCategoryPickerError(false);
   }
 
-  async function fetchEoiPrefill() {
-    const digits = prefillMobile.replace(/\D/g, "").slice(-10);
-    if (digits.length !== 10) {
-      setPrefillMsg("Enter 10 digits of the mobile number used on your Expression of Interest.");
+  function prefillHasData(prefill: VendorRegistrationPrefill): boolean {
+    return Object.values(prefill).some((v) => {
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === "boolean") return true;
+      return v !== undefined && v !== "";
+    });
+  }
+
+  function buildEoiPrefillBody(lookup: string): Record<string, string> | null {
+    const raw = lookup.trim();
+    if (!raw) return null;
+    if (isEoiReferenceInput(raw)) {
+      const reference = normalizeEoiReference(raw);
+      if (!reference) {
+        return null;
+      }
+      return { reference };
+    }
+    const digits = mobileDigitsFromInput(raw);
+    if (!digits) return null;
+    return { mobile: digits };
+  }
+
+  async function fetchEoiPrefill(lookupOverride?: string) {
+    const lookup = (lookupOverride ?? prefillMobile).trim();
+    const token = invitationToken.trim();
+    const body =
+      lookup.length > 0
+        ? buildEoiPrefillBody(lookup)
+        : token.length >= 32
+          ? { invitation_token: token }
+          : null;
+
+    if (!body) {
+      setPrefillMsg(
+        "Enter your EOI reference (e.g. EOI-2026-ABC123) or the 10-digit mobile number from your Expression of Interest.",
+      );
       return;
     }
     setPrefillBusy(true);
@@ -233,7 +272,7 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
       const res = await fetch("/api/vendors/eoi-prefill", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile: digits }),
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as {
         found?: boolean;
@@ -244,8 +283,8 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
         setPrefillMsg(data.error ?? "Lookup failed.");
         return;
       }
-      if (!data.found || !data.prefill) {
-        setPrefillMsg("No Expression of Interest found for this mobile. Fill the form manually.");
+      if (!data.found || !data.prefill || !prefillHasData(data.prefill)) {
+        setPrefillMsg("No Expression of Interest found. Check the reference or mobile and try again.");
         return;
       }
       applyPrefill(data.prefill);
@@ -256,6 +295,12 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
       setPrefillBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!invitationToken.trim()) return;
+    void fetchEoiPrefill("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once when committee link opens
+  }, [invitationToken]);
 
   function onPanIndia(v: boolean) {
     setF((p) => ({
@@ -473,20 +518,21 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-900/60">
         <p className="font-medium text-zinc-900 dark:text-zinc-50">Already submitted an Expression of Interest?</p>
         <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-          Enter the <strong>same 10-digit mobile number</strong> you used on the EOI. We will load matching fields
-          (name, address, contact, PAN, GST, categories, etc.) so you can review and complete the rest.
+          Enter your <strong>EOI reference number</strong> (from your confirmation screen or email) or the{" "}
+          <strong>same 10-digit mobile number</strong> you used on the EOI. We will load matching fields so you can
+          review and complete the rest.
         </p>
         <div className="mt-3 flex max-w-md flex-col gap-2 sm:flex-row sm:items-end">
           <div className="flex-1">
-            <label className={labelClass()}>Mobile (EOI)</label>
+            <label className={labelClass()}>EOI reference or mobile</label>
             <input
               className={inputClass()}
-              inputMode="numeric"
-              autoComplete="tel"
+              inputMode={isEoiReferenceInput(prefillMobile) ? "text" : "numeric"}
+              autoComplete="off"
               value={prefillMobile}
-              onChange={(e) => setPrefillMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
-              placeholder="10-digit mobile"
-              maxLength={10}
+              onChange={(e) => setPrefillMobile(sanitizePrefillLookupInput(e.target.value))}
+              placeholder="EOI-2026-ABC123 or 10-digit mobile"
+              maxLength={24}
             />
           </div>
           <button
