@@ -61,6 +61,7 @@ interface FormState {
   service_location_pan_india: boolean;
   service_location_madhya_pradesh: boolean;
   service_location_indore: boolean;
+  service_location_other: boolean;
   additional_service_locations: string;
   turnover_fy_2023_24: string;
   turnover_fy_2024_25: string;
@@ -121,6 +122,7 @@ const initial: FormState = {
   service_location_pan_india: false,
   service_location_madhya_pradesh: true,
   service_location_indore: true,
+  service_location_other: false,
   additional_service_locations: "",
   turnover_fy_2023_24: "",
   turnover_fy_2024_25: "",
@@ -181,27 +183,46 @@ function applyPanChange(prev: FormState, panRaw: string): FormState {
   return { ...next, gstin: (prefix + suffix).slice(0, 15) };
 }
 
-function SectionTitle({ n, title }: { n: number; title: string }) {
+function SectionTitle({ n, title }: { n?: number; title: string }) {
   return (
     <h2 className="mt-10 border-b border-zinc-200 pb-2 text-lg font-semibold text-zinc-900 dark:border-zinc-700 dark:text-zinc-50">
-      <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs text-white">
-        {n}
-      </span>
+      {n != null ? (
+        <span className="mr-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs text-white">
+          {n}
+        </span>
+      ) : null}
       {title}
     </h2>
   );
 }
 
-export function VendorRegistrationForm({ invitationToken = "" }: { invitationToken?: string }) {
+export function VendorRegistrationForm({
+  invitationToken = "",
+  initialEoiReference = "",
+}: {
+  invitationToken?: string;
+  /** Optional query `?eoi=EOI-…` to pre-fill the reference field */
+  initialEoiReference?: string;
+}) {
   const [f, setF] = useState<FormState>(initial);
   const [categoryPickerError, setCategoryPickerError] = useState(false);
-  const [prefillMobile, setPrefillMobile] = useState("");
+  const [eoiRefInput, setEoiRefInput] = useState("");
+  const [linkedEoiReference, setLinkedEoiReference] = useState<string | null>(null);
+  const [eoiSummaryLines, setEoiSummaryLines] = useState<{ label: string; value: string }[] | null>(null);
   const [prefillBusy, setPrefillBusy] = useState(false);
   const [prefillMsg, setPrefillMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [ifscLookupBusy, setIfscLookupBusy] = useState(false);
   const [ifscLookup, setIfscLookup] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+
+  const hasInvite = invitationToken.trim().length >= 32;
+  const linkedFromEoi = linkedEoiReference !== null;
+
+  useEffect(() => {
+    const t = initialEoiReference.trim();
+    if (t) setEoiRefInput(t);
+  }, [initialEoiReference]);
 
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setF((p) => ({ ...p, [key]: value }));
@@ -221,37 +242,62 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
     setCategoryPickerError(false);
   }
 
-  async function fetchEoiPrefill() {
-    const digits = prefillMobile.replace(/\D/g, "").slice(-10);
-    if (digits.length !== 10) {
-      setPrefillMsg("Enter 10 digits of the mobile number used on your Expression of Interest.");
+  async function fetchEoiByReference() {
+    const raw = eoiRefInput.trim();
+    if (raw.length < 8) {
+      setPrefillMsg("Enter the full EOI reference (for example EOI-2026-ABC123) from your confirmation screen.");
       return;
     }
     setPrefillBusy(true);
     setPrefillMsg(null);
     try {
-      const res = await fetch("/api/vendors/eoi-prefill", {
+      const res = await fetch("/api/vendors/eoi-by-reference", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile: digits }),
+        body: JSON.stringify({ reference: raw }),
       });
       const data = (await res.json()) as {
         found?: boolean;
         prefill?: VendorRegistrationPrefill;
+        summary_lines?: { label: string; value: string }[];
+        reference_number?: string;
+        service_location_pan_india?: boolean;
+        service_location_madhya_pradesh?: boolean;
+        service_location_indore?: boolean;
+        service_location_other?: boolean;
+        additional_service_locations?: string | null;
         error?: string;
       };
       if (!res.ok) {
         setPrefillMsg(data.error ?? "Lookup failed.");
+        setLinkedEoiReference(null);
+        setEoiSummaryLines(null);
         return;
       }
-      if (!data.found || !data.prefill) {
-        setPrefillMsg("No Expression of Interest found for this mobile. Fill the form manually.");
+      if (!data.found || !data.prefill || !data.summary_lines || !data.reference_number) {
+        setPrefillMsg(data.error ?? "Could not load this EOI.");
+        setLinkedEoiReference(null);
+        setEoiSummaryLines(null);
         return;
       }
       applyPrefill(data.prefill);
-      setPrefillMsg("Details loaded from your latest EOI. Review every field before submitting.");
+      setF((p) => ({
+        ...p,
+        service_location_pan_india: data.service_location_pan_india ?? p.service_location_pan_india,
+        service_location_madhya_pradesh: data.service_location_madhya_pradesh ?? p.service_location_madhya_pradesh,
+        service_location_indore: data.service_location_indore ?? p.service_location_indore,
+        service_location_other: data.service_location_other ?? p.service_location_other,
+        additional_service_locations: data.additional_service_locations ?? p.additional_service_locations ?? "",
+      }));
+      setLinkedEoiReference(data.reference_number);
+      setEoiSummaryLines(data.summary_lines);
+      setPrefillMsg(
+        "EOI linked. Fields you already submitted on the EOI are shown as a summary below — complete the remaining sections and submit.",
+      );
     } catch {
       setPrefillMsg("Network error. Try again.");
+      setLinkedEoiReference(null);
+      setEoiSummaryLines(null);
     } finally {
       setPrefillBusy(false);
     }
@@ -367,6 +413,7 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
         ...f,
         its_number: f.its_number.replace(/\D/g, "").length === 8 ? f.its_number.replace(/\D/g, "").slice(0, 8) : null,
         invitation_token: invitationToken.trim(),
+        eoi_reference: linkedFromEoi && linkedEoiReference ? linkedEoiReference : "",
         aadhaar_linked_with_pan:
           f.aadhaar_linked_with_pan === "yes" || f.aadhaar_linked_with_pan === "no"
             ? f.aadhaar_linked_with_pan
@@ -393,7 +440,9 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
 
       setMsg({ type: "ok", text: "Registration submitted successfully. Our team will review your application." });
       setF(initial);
-      setPrefillMobile("");
+      setEoiRefInput("");
+      setLinkedEoiReference(null);
+      setEoiSummaryLines(null);
       setPrefillMsg(null);
       setIfscLookup(null);
     } catch {
@@ -458,342 +507,532 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
     <form
       id="vendor-registration-form"
       onSubmit={onSubmit}
-      className="vendor-registration-print-root mx-auto max-w-3xl space-y-2 pb-24"
+      className="vendor-registration-print-root mx-auto max-w-4xl space-y-4 pb-24"
     >
-      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-        <p className="font-semibold">Important: this form is not saved automatically.</p>
-        <p className="mt-1">
-          If you close or refresh the page before submitting, your entries may be lost. Use{" "}
-          <strong>Download CSV</strong> below to keep a copy, or use your browser&apos;s print / save as PDF before
-          closing. Your data is stored in the organisation database only after you click <strong>Submit registration</strong>{" "}
-          successfully.
+      <div className="rounded-xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-white p-5 text-sm text-amber-950 shadow-sm dark:border-amber-900/40 dark:from-amber-950/30 dark:to-zinc-950 dark:text-amber-50">
+        <p className="font-semibold text-base">This form is not saved until you submit successfully</p>
+        <p className="mt-2 leading-relaxed text-amber-900/90 dark:text-amber-100/90">
+          If you close or refresh the page, your entries may be lost. Use <strong>Download CSV</strong> or print / save
+          as PDF before closing. Data is stored only after <strong>Submit registration</strong> completes.
         </p>
       </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-900/60">
-        <p className="font-medium text-zinc-900 dark:text-zinc-50">Already submitted an Expression of Interest?</p>
-        <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-          Enter the <strong>same 10-digit mobile number</strong> you used on the EOI. We will load matching fields
-          (name, address, contact, PAN, GST, categories, etc.) so you can review and complete the rest.
-        </p>
-        <div className="mt-3 flex max-w-md flex-col gap-2 sm:flex-row sm:items-end">
-          <div className="flex-1">
-            <label className={labelClass()}>Mobile (EOI)</label>
-            <input
-              className={inputClass()}
-              inputMode="numeric"
-              autoComplete="tel"
-              value={prefillMobile}
-              onChange={(e) => setPrefillMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
-              placeholder="10-digit mobile"
-              maxLength={10}
-            />
-          </div>
-          <button
-            type="button"
-            disabled={prefillBusy}
-            onClick={() => void fetchEoiPrefill()}
-            className="rounded-lg bg-zinc-800 px-4 py-2.5 text-sm font-semibold text-white hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-200 dark:text-zinc-900 dark:hover:bg-white"
-          >
-            {prefillBusy ? "Looking up…" : "Fetch from EOI"}
-          </button>
-        </div>
-        {prefillMsg ? <p className="mt-2 text-xs text-zinc-700 dark:text-zinc-300">{prefillMsg}</p> : null}
-      </div>
-
-      <SectionTitle n={1} title="Vendor basic details" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <label className={labelClass()}>Vendor / company name *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.company_name}
-            onChange={(e) => set("company_name", e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>Vendor type *</label>
-          <select
-            required
-            className={inputClass()}
-            value={f.vendor_type}
-            onChange={(e) => set("vendor_type", e.target.value)}
-          >
-            <option value="">Select</option>
-            <option>Goods supplier</option>
-            <option>Service provider</option>
-            <option>Goods &amp; services</option>
-            <option>Works / contractor</option>
-            <option>Consultant</option>
-            <option>Other</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass()}>Constitution of business *</label>
-          <select
-            required
-            className={inputClass()}
-            value={f.constitution_of_business}
-            onChange={(e) => set("constitution_of_business", e.target.value)}
-          >
-            <option value="">Select</option>
-            <option>Proprietorship</option>
-            <option>Partnership firm</option>
-            <option>LLP</option>
-            <option>Private limited</option>
-            <option>Public limited</option>
-            <option>One person company</option>
-            <option>Trust / society</option>
-            <option>Other</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass()}>Year of establishment</label>
-          <input
-            type="number"
-            min={1800}
-            max={2100}
-            className={inputClass()}
-            value={f.year_of_establishment}
-            onChange={(e) => set("year_of_establishment", e.target.value)}
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass()}>Registered address *</label>
-          <textarea
-            required
-            rows={3}
-            className={inputClass()}
-            value={f.registered_address}
-            onChange={(e) => set("registered_address", e.target.value)}
-            placeholder="Complete registered address"
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>City *</label>
-          <input required className={inputClass()} value={f.city} onChange={(e) => set("city", e.target.value)} />
-        </div>
-        <div>
-          <label className={labelClass()}>State *</label>
-          <input required className={inputClass()} value={f.state} onChange={(e) => set("state", e.target.value)} />
-        </div>
-        <div>
-          <label className={labelClass()}>Country *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.country}
-            onChange={(e) => set("country", e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>PIN code *</label>
-          <input
-            required
-            pattern="\d{6}"
-            className={inputClass()}
-            value={f.pin_code}
-            onChange={(e) => set("pin_code", e.target.value)}
-          />
-          <p className="mt-1 text-xs text-zinc-500">For Indore, default PIN 452001 (editable).</p>
-        </div>
-      </div>
-
-      <SectionTitle n={2} title="Contact details" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass()}>Primary contact person *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.primary_contact_person}
-            onChange={(e) => set("primary_contact_person", e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>Designation</label>
-          <input
-            className={inputClass()}
-            value={f.contact_designation}
-            onChange={(e) => set("contact_designation", e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>Mobile number * (+91 + 10 digits)</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.mobile_number}
-            onChange={(e) => set("mobile_number", e.target.value)}
-            placeholder="+919876543210"
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>Alternate mobile</label>
-          <input
-            className={inputClass()}
-            value={f.alternate_mobile}
-            onChange={(e) => set("alternate_mobile", e.target.value)}
-            placeholder="+91"
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>Email ID *</label>
-          <input
-            required
-            type="email"
-            className={inputClass()}
-            value={f.email}
-            onChange={(e) => set("email", e.target.value)}
-            placeholder="name@gmail.com"
-          />
-          <p className="mt-1 text-xs text-zinc-500">
-            Use a full valid address (for example <span className="font-mono">name@gmail.com</span>) or your
-            organisation domain.
-          </p>
-        </div>
-        <div>
-          <label className={labelClass()}>ITS number (optional)</label>
-          <input
-            className={inputClass()}
-            inputMode="numeric"
-            maxLength={8}
-            value={f.its_number}
-            onChange={(e) => set("its_number", e.target.value.replace(/\D/g, "").slice(0, 8))}
-            placeholder="8 digits, community members only"
-          />
-          <p className="mt-1 text-xs text-zinc-500">Leave blank if not applicable.</p>
-        </div>
-        <div>
-          <label className={labelClass()}>Website</label>
-          <input
-            className={inputClass()}
-            value={f.website}
-            onChange={(e) => set("website", e.target.value)}
-            placeholder="https://example.com"
-          />
-        </div>
-      </div>
-
-      <SectionTitle n={3} title="Statutory / tax details" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass()}>PAN number *</label>
-          <input
-            required
-            className={inputClass()}
-            value={f.pan_number}
-            onChange={(e) => setF((p) => applyPanChange(p, e.target.value))}
-            maxLength={10}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>GST registered? *</label>
-          <select
-            required
-            className={inputClass()}
-            value={f.gst_registered ? "yes" : "no"}
-            onChange={(e) => {
-              const yes = e.target.value === "yes";
-              if (!yes) {
-                set("gst_registered", false);
-                set("gstin", "");
-                set("doc_gst_certificate", false);
-                return;
-              }
-              setF((prev) => {
-                const pan = prev.pan_number.toUpperCase().replace(/\s/g, "");
-                const gstin =
-                  validatePAN(pan) ? buildGstinPrefix(pan, DEFAULT_GST_STATE_CODE) : prev.gstin;
-                return { ...prev, gst_registered: true, gstin };
-              });
-            }}
-          >
-            <option value="no">No</option>
-            <option value="yes">Yes</option>
-          </select>
-          <p className="mt-1 text-xs text-zinc-500">GST stays “No” until you choose Yes; a valid PAN helps pre-fill GSTIN.</p>
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass()}>GSTIN</label>
-          <input
-            disabled={!f.gst_registered}
-            className={inputClass() + (f.gst_registered ? "" : " opacity-60")}
-            value={f.gstin}
-            maxLength={15}
-            onChange={(e) => set("gstin", e.target.value.toUpperCase())}
-            placeholder={f.gst_registered ? "Enter full 15-character GSTIN" : ""}
-          />
-          {f.gst_registered ? (
-            <p className="mt-1 text-xs text-zinc-500">
-              The first 12 characters are suggested from your PAN and state 23 (Madhya Pradesh). Enter the final three
-              characters yourself; they are not auto-filled. Replace the whole GSTIN if yours differs.
+      {!hasInvite ? (
+        <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="border-b border-zinc-100 bg-zinc-50/80 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900/80">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">Link your Expression of Interest (optional)</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-600 dark:text-zinc-400">
+              After you submit an EOI, you receive a <strong>reference ID</strong> (for example{" "}
+              <span className="font-mono text-zinc-800 dark:text-zinc-200">EOI-2026-A1B2C3</span>). Enter it here to
+              pull your details and skip questions you already answered on the EOI. Your email, mobile (+91), and PAN on
+              this form must match the EOI — we verify them when you submit.
             </p>
-          ) : null}
+          </div>
+          <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1">
+              <label className={labelClass()}>EOI reference ID</label>
+              <input
+                className={inputClass() + " font-mono tracking-wide"}
+                autoComplete="off"
+                spellCheck={false}
+                value={eoiRefInput}
+                onChange={(e) => setEoiRefInput(e.target.value.toUpperCase())}
+                placeholder="EOI-2026-XXXXXX"
+                disabled={!!linkedEoiReference}
+              />
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              {linkedEoiReference ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLinkedEoiReference(null);
+                    setEoiSummaryLines(null);
+                    setPrefillMsg(null);
+                    setEoiRefInput("");
+                    setF(initial);
+                    setCategoryPickerError(false);
+                    setIfscLookup(null);
+                  }}
+                  className="rounded-lg border border-zinc-300 px-4 py-2.5 text-sm font-medium text-zinc-800 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  Unlink &amp; start fresh
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={prefillBusy}
+                  onClick={() => void fetchEoiByReference()}
+                  className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {prefillBusy ? "Looking up…" : "Load from EOI"}
+                </button>
+              )}
+            </div>
+          </div>
+          {prefillMsg ? <p className="border-t border-zinc-100 px-5 py-3 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{prefillMsg}</p> : null}
         </div>
-        <div>
-          <label className={labelClass()}>MSME registered?</label>
-          <select
-            className={inputClass()}
-            value={f.msme_registered ? "yes" : "no"}
-            onChange={(e) => {
-              const yes = e.target.value === "yes";
-              set("msme_registered", yes);
-              if (!yes) {
-                set("msme_udyam_number", "");
-                set("doc_msme_certificate", false);
-              }
-            }}
-          >
-            <option value="no">No</option>
-            <option value="yes">Yes</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass()}>MSME / Udyam number</label>
-          <input
-            disabled={!f.msme_registered}
-            className={inputClass() + (f.msme_registered ? "" : " opacity-60")}
-            value={f.msme_udyam_number}
-            onChange={(e) => set("msme_udyam_number", e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>TAN number, if applicable</label>
-          <input className={inputClass()} value={f.tan_number} onChange={(e) => set("tan_number", e.target.value)} />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass()}>TDS applicability (notes)</label>
-          <input
-            className={inputClass()}
-            value={f.tds_applicability}
-            onChange={(e) => set("tds_applicability", e.target.value)}
-            placeholder="As applicable"
-          />
-          <p className="mt-1 text-xs text-zinc-500">
-            TDS shall be deducted wherever applicable as per prevailing statutory norms. If PAN and Aadhaar are not
-            linked, higher TDS shall be deducted as per applicable norms.
+      ) : null}
+
+      {linkedFromEoi && eoiSummaryLines ? (
+        <section className="overflow-hidden rounded-xl border border-emerald-200/80 bg-white shadow-sm dark:border-emerald-900/40 dark:bg-zinc-900">
+          <div className="border-b border-emerald-100 bg-emerald-50/60 px-5 py-3 dark:border-emerald-900/30 dark:bg-emerald-950/20">
+            <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-100">From your Expression of Interest</p>
+            <p className="mt-0.5 text-xs text-emerald-900/80 dark:text-emerald-200/80">
+              The following was submitted on your EOI and is locked for this registration. Contact the committee if any
+              detail needs a correction.
+            </p>
+          </div>
+          <dl className="grid gap-x-6 gap-y-3 p-5 sm:grid-cols-2">
+            {eoiSummaryLines.map((row) => (
+              <div key={row.label} className={row.label.includes("Capability") || row.label.includes("Address") ? "sm:col-span-2" : ""}>
+                <dt className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{row.label}</dt>
+                <dd className="mt-0.5 text-sm text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap break-words">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
+
+      {!linkedFromEoi ? (
+        <>
+          <SectionTitle n={1} title="Vendor basic details" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>Vendor / company name *</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.company_name}
+                onChange={(e) => set("company_name", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Vendor type *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.vendor_type}
+                onChange={(e) => set("vendor_type", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option>Goods supplier</option>
+                <option>Service provider</option>
+                <option>Goods &amp; services</option>
+                <option>Works / contractor</option>
+                <option>Consultant</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass()}>Constitution of business *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.constitution_of_business}
+                onChange={(e) => set("constitution_of_business", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option>Proprietorship</option>
+                <option>Partnership firm</option>
+                <option>LLP</option>
+                <option>Private limited</option>
+                <option>Public limited</option>
+                <option>One person company</option>
+                <option>Trust / society</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass()}>Year of establishment</label>
+              <input
+                type="number"
+                min={1800}
+                max={2100}
+                className={inputClass()}
+                value={f.year_of_establishment}
+                onChange={(e) => set("year_of_establishment", e.target.value)}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>Registered address *</label>
+              <textarea
+                required
+                rows={3}
+                className={inputClass()}
+                value={f.registered_address}
+                onChange={(e) => set("registered_address", e.target.value)}
+                placeholder="Complete registered address"
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>City *</label>
+              <input required className={inputClass()} value={f.city} onChange={(e) => set("city", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelClass()}>State *</label>
+              <input required className={inputClass()} value={f.state} onChange={(e) => set("state", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelClass()}>Country *</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.country}
+                onChange={(e) => set("country", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>PIN code *</label>
+              <input
+                required
+                pattern="\d{6}"
+                className={inputClass()}
+                value={f.pin_code}
+                onChange={(e) => set("pin_code", e.target.value)}
+              />
+              <p className="mt-1 text-xs text-zinc-500">For Indore, default PIN 452001 (editable).</p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle title="Classification & registered office (PIN)" />
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Vendor type was not part of the EOI. PIN and country complete your registered-office line for statutory
+            records.
           </p>
-        </div>
-        <div className="sm:col-span-2">
-          <label className={labelClass()}>Is Aadhaar linked with PAN? *</label>
-          <select
-            required
-            className={inputClass()}
-            value={f.aadhaar_linked_with_pan}
-            onChange={(e) => set("aadhaar_linked_with_pan", e.target.value as FormState["aadhaar_linked_with_pan"])}
-          >
-            <option value="">Select</option>
-            <option value="yes">Yes</option>
-            <option value="no">No</option>
-            <option value="unknown">Unknown / pending verification</option>
-          </select>
-          <p className="mt-1 text-xs text-zinc-500">
-            If PAN and Aadhaar are not linked, higher TDS shall be deducted as per applicable norms.
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass()}>Vendor type *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.vendor_type}
+                onChange={(e) => set("vendor_type", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option>Goods supplier</option>
+                <option>Service provider</option>
+                <option>Goods &amp; services</option>
+                <option>Works / contractor</option>
+                <option>Consultant</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass()}>Country *</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.country}
+                onChange={(e) => set("country", e.target.value)}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>PIN code * (6 digits)</label>
+              <input
+                required
+                pattern="\d{6}"
+                className={inputClass()}
+                value={f.pin_code}
+                onChange={(e) => set("pin_code", e.target.value)}
+              />
+              <p className="mt-1 text-xs text-zinc-500">Not collected on the EOI — enter your registered office PIN.</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {!linkedFromEoi ? (
+        <>
+          <SectionTitle n={2} title="Contact details" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass()}>Primary contact person *</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.primary_contact_person}
+                onChange={(e) => set("primary_contact_person", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Designation</label>
+              <input
+                className={inputClass()}
+                value={f.contact_designation}
+                onChange={(e) => set("contact_designation", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Mobile number * (+91 + 10 digits)</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.mobile_number}
+                onChange={(e) => set("mobile_number", e.target.value)}
+                placeholder="+919876543210"
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Alternate mobile</label>
+              <input
+                className={inputClass()}
+                value={f.alternate_mobile}
+                onChange={(e) => set("alternate_mobile", e.target.value)}
+                placeholder="+91"
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Email ID *</label>
+              <input
+                required
+                type="email"
+                className={inputClass()}
+                value={f.email}
+                onChange={(e) => set("email", e.target.value)}
+                placeholder="name@gmail.com"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Use a full valid address (for example <span className="font-mono">name@gmail.com</span>) or your
+                organisation domain.
+              </p>
+            </div>
+            <div>
+              <label className={labelClass()}>ITS number (optional)</label>
+              <input
+                className={inputClass()}
+                inputMode="numeric"
+                maxLength={8}
+                value={f.its_number}
+                onChange={(e) => set("its_number", e.target.value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="8 digits, community members only"
+              />
+              <p className="mt-1 text-xs text-zinc-500">Leave blank if not applicable.</p>
+            </div>
+            <div>
+              <label className={labelClass()}>Website</label>
+              <input
+                className={inputClass()}
+                value={f.website}
+                onChange={(e) => set("website", e.target.value)}
+                placeholder="https://example.com"
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle title="Optional contact additions" />
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Primary contact, mobile, email, and ITS on your EOI are fixed for this registration. Add an alternate number
+            or website if you wish.
           </p>
-        </div>
-      </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass()}>Alternate mobile</label>
+              <input
+                className={inputClass()}
+                value={f.alternate_mobile}
+                onChange={(e) => set("alternate_mobile", e.target.value)}
+                placeholder="+91"
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>Website</label>
+              <input
+                className={inputClass()}
+                value={f.website}
+                onChange={(e) => set("website", e.target.value)}
+                placeholder="https://example.com"
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {!linkedFromEoi ? (
+        <>
+          <SectionTitle n={3} title="Statutory / tax details" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass()}>PAN number *</label>
+              <input
+                required
+                className={inputClass()}
+                value={f.pan_number}
+                onChange={(e) => setF((p) => applyPanChange(p, e.target.value))}
+                maxLength={10}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>GST registered? *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.gst_registered ? "yes" : "no"}
+                onChange={(e) => {
+                  const yes = e.target.value === "yes";
+                  if (!yes) {
+                    set("gst_registered", false);
+                    set("gstin", "");
+                    set("doc_gst_certificate", false);
+                    return;
+                  }
+                  setF((prev) => {
+                    const pan = prev.pan_number.toUpperCase().replace(/\s/g, "");
+                    const gstin =
+                      validatePAN(pan) ? buildGstinPrefix(pan, DEFAULT_GST_STATE_CODE) : prev.gstin;
+                    return { ...prev, gst_registered: true, gstin };
+                  });
+                }}
+              >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">GST stays “No” until you choose Yes; a valid PAN helps pre-fill GSTIN.</p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>GSTIN</label>
+              <input
+                disabled={!f.gst_registered}
+                className={inputClass() + (f.gst_registered ? "" : " opacity-60")}
+                value={f.gstin}
+                maxLength={15}
+                onChange={(e) => set("gstin", e.target.value.toUpperCase())}
+                placeholder={f.gst_registered ? "Enter full 15-character GSTIN" : ""}
+              />
+              {f.gst_registered ? (
+                <p className="mt-1 text-xs text-zinc-500">
+                  The first 12 characters are suggested from your PAN and state 23 (Madhya Pradesh). Enter the final three
+                  characters yourself; they are not auto-filled. Replace the whole GSTIN if yours differs.
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label className={labelClass()}>MSME registered?</label>
+              <select
+                className={inputClass()}
+                value={f.msme_registered ? "yes" : "no"}
+                onChange={(e) => {
+                  const yes = e.target.value === "yes";
+                  set("msme_registered", yes);
+                  if (!yes) {
+                    set("msme_udyam_number", "");
+                    set("doc_msme_certificate", false);
+                  }
+                }}
+              >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelClass()}>MSME / Udyam number</label>
+              <input
+                disabled={!f.msme_registered}
+                className={inputClass() + (f.msme_registered ? "" : " opacity-60")}
+                value={f.msme_udyam_number}
+                onChange={(e) => set("msme_udyam_number", e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={labelClass()}>TAN number, if applicable</label>
+              <input className={inputClass()} value={f.tan_number} onChange={(e) => set("tan_number", e.target.value)} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>TDS applicability (notes)</label>
+              <input
+                className={inputClass()}
+                value={f.tds_applicability}
+                onChange={(e) => set("tds_applicability", e.target.value)}
+                placeholder="As applicable"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                TDS shall be deducted wherever applicable as per prevailing statutory norms. If PAN and Aadhaar are not
+                linked, higher TDS shall be deducted as per applicable norms.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>Is Aadhaar linked with PAN? *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.aadhaar_linked_with_pan}
+                onChange={(e) => set("aadhaar_linked_with_pan", e.target.value as FormState["aadhaar_linked_with_pan"])}
+              >
+                <option value="">Select</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+                <option value="unknown">Unknown / pending verification</option>
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                If PAN and Aadhaar are not linked, higher TDS shall be deducted as per applicable norms.
+              </p>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle title="Additional statutory details" />
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            PAN, GST, and MSME were captured on your EOI. Provide TAN and TDS notes if applicable, and confirm Aadhaar–PAN
+            linking for withholding tax purposes.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass()}>MSME / Udyam number</label>
+              <input
+                disabled={!f.msme_registered}
+                className={inputClass() + (f.msme_registered ? "" : " opacity-60")}
+                value={f.msme_udyam_number}
+                onChange={(e) => set("msme_udyam_number", e.target.value)}
+                placeholder={f.msme_registered ? "Enter Udyam registration number" : ""}
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                {f.msme_registered
+                  ? "The EOI only recorded MSME status — enter your Udyam number if registered."
+                  : "Not applicable (MSME not registered on EOI)."}
+              </p>
+            </div>
+            <div>
+              <label className={labelClass()}>TAN number, if applicable</label>
+              <input className={inputClass()} value={f.tan_number} onChange={(e) => set("tan_number", e.target.value)} />
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>TDS applicability (notes)</label>
+              <input
+                className={inputClass()}
+                value={f.tds_applicability}
+                onChange={(e) => set("tds_applicability", e.target.value)}
+                placeholder="As applicable"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                TDS shall be deducted wherever applicable as per prevailing statutory norms. If PAN and Aadhaar are not
+                linked, higher TDS shall be deducted as per applicable norms.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>Is Aadhaar linked with PAN? *</label>
+              <select
+                required
+                className={inputClass()}
+                value={f.aadhaar_linked_with_pan}
+                onChange={(e) => set("aadhaar_linked_with_pan", e.target.value as FormState["aadhaar_linked_with_pan"])}
+              >
+                <option value="">Select</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+                <option value="unknown">Unknown / pending verification</option>
+              </select>
+              <p className="mt-1 text-xs text-zinc-500">
+                If PAN and Aadhaar are not linked, higher TDS shall be deducted as per applicable norms.
+              </p>
+            </div>
+          </div>
+        </>
+      )}
 
       <SectionTitle n={4} title="Bank details" />
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
@@ -881,8 +1120,10 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
         </div>
       </div>
 
-      <SectionTitle n={5} title="Product / service details" />
-      <div className="grid gap-4 sm:grid-cols-2">
+      {!linkedFromEoi ? (
+        <>
+          <SectionTitle n={5} title="Product / service details" />
+          <div className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className={labelClass()}>Categories you supply *</label>
           <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
@@ -1060,6 +1301,100 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
           </select>
         </div>
       </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle title="Financial details & programme coverage" />
+          <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50/90 p-4 text-sm dark:border-zinc-600 dark:bg-zinc-900/50">
+            <p className="font-medium text-zinc-900 dark:text-zinc-50">Aligned with your EOI</p>
+            <p className="mt-1 text-zinc-600 dark:text-zinc-400">
+              Broad industries, vendor types, capability text, and programme geography were submitted on your Expression
+              of Interest and are stored with this registration. Enter <strong>exact annual figures</strong> below (not
+              collected on the EOI).
+            </p>
+            <ul className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+              <li className="rounded-md bg-white px-3 py-2 dark:bg-zinc-950">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">Indore (programme)</span>
+                <span className="text-zinc-600 dark:text-zinc-400"> — {f.service_location_indore ? "Yes" : "No"}</span>
+              </li>
+              <li className="rounded-md bg-white px-3 py-2 dark:bg-zinc-950">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">Madhya Pradesh</span>
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {" "}
+                  — {f.service_location_madhya_pradesh ? "Yes" : "No"}
+                </span>
+              </li>
+              <li className="rounded-md bg-white px-3 py-2 dark:bg-zinc-950">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">PAN India</span>
+                <span className="text-zinc-600 dark:text-zinc-400"> — {f.service_location_pan_india ? "Yes" : "No"}</span>
+              </li>
+              <li className="rounded-md bg-white px-3 py-2 dark:bg-zinc-950">
+                <span className="font-semibold text-zinc-800 dark:text-zinc-200">Other locations noted</span>
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {" "}
+                  — {f.service_location_other && f.additional_service_locations.trim() ? "Yes (see EOI summary)" : "No"}
+                </span>
+              </li>
+            </ul>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className={labelClass()}>Annual turnover — last three years</label>
+              <p className="mb-2 text-xs text-zinc-500">
+                Enter amounts as digits (commas optional). On blur, values format in Indian style (e.g. 10000000 →
+                1,00,00,000).
+              </p>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div>
+                  <span className="text-xs text-zinc-500">FY 2023-24</span>
+                  <input
+                    className={inputClass()}
+                    value={f.turnover_fy_2023_24}
+                    onChange={(e) => set("turnover_fy_2023_24", e.target.value)}
+                    onBlur={() => set("turnover_fy_2023_24", formatIndianNumberDisplay(f.turnover_fy_2023_24))}
+                    placeholder="e.g. 10000000"
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-500">FY 2024-25</span>
+                  <input
+                    className={inputClass()}
+                    value={f.turnover_fy_2024_25}
+                    onChange={(e) => set("turnover_fy_2024_25", e.target.value)}
+                    onBlur={() => set("turnover_fy_2024_25", formatIndianNumberDisplay(f.turnover_fy_2024_25))}
+                  />
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-500">FY 2025-26</span>
+                  <input
+                    className={inputClass()}
+                    value={f.turnover_fy_2025_26}
+                    onChange={(e) => set("turnover_fy_2025_26", e.target.value)}
+                    onBlur={() => set("turnover_fy_2025_26", formatIndianNumberDisplay(f.turnover_fy_2025_26))}
+                  />
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className={labelClass()}>Expected credit period</label>
+              <select
+                className={inputClass()}
+                value={f.expected_credit_period}
+                onChange={(e) => set("expected_credit_period", e.target.value)}
+              >
+                <option value="">Select</option>
+                <option>7 days</option>
+                <option>15 days</option>
+                <option>30 days</option>
+                <option>45 days</option>
+                <option>60 days</option>
+                <option>90 days</option>
+                <option>Other / as per PO</option>
+              </select>
+            </div>
+          </div>
+        </>
+      )}
 
       <SectionTitle n={6} title="Existing client / reference details" />
       <div className="grid gap-4 sm:grid-cols-2">
@@ -1303,7 +1638,9 @@ export function VendorRegistrationForm({ invitationToken = "" }: { invitationTok
           onClick={() => {
             setF(initial);
             setMsg(null);
-            setPrefillMobile("");
+            setEoiRefInput(initialEoiReference.trim());
+            setLinkedEoiReference(null);
+            setEoiSummaryLines(null);
             setPrefillMsg(null);
             setIfscLookup(null);
             setCategoryPickerError(false);
