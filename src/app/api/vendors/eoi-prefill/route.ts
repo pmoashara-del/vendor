@@ -1,24 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  EOI_PREFILL_SELECT,
-  isEoiReferenceInput,
-  mobileDigitsFromInput,
-  normalizeEoiReference,
-} from "@/lib/vendors/eoi-prefill-lookup";
 import { mapEoiRowToVendorPrefill } from "@/lib/vendors/eoi-prefill-map";
 import { createServiceSupabase } from "@/lib/supabase/service";
-import { hashInviteToken } from "@/lib/tokens/eoi-invite";
 
-const bodySchema = z
-  .object({
-    mobile: z.string().max(40).optional(),
-    reference: z.string().max(40).optional(),
-    invitation_token: z.string().max(128).optional(),
-  })
-  .refine((d) => Boolean(d.mobile?.trim() || d.reference?.trim() || d.invitation_token?.trim()), {
-    message: "Provide mobile, EOI reference, or invitation token",
-  });
+const bodySchema = z.object({
+  mobile: z.string().min(1).max(20),
+});
 
 export async function POST(req: Request) {
   let json: unknown;
@@ -33,35 +20,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Validation failed", details: parsed.error.flatten() }, { status: 422 });
   }
 
-  const token = parsed.data.invitation_token?.trim() ?? "";
-  const reference = parsed.data.reference?.trim()
-    ? normalizeEoiReference(parsed.data.reference)
-    : parsed.data.mobile?.trim() && isEoiReferenceInput(parsed.data.mobile)
-      ? normalizeEoiReference(parsed.data.mobile)
-      : null;
-  const mobileRaw = parsed.data.mobile?.trim() ?? "";
-  const digits = reference ? null : mobileDigitsFromInput(mobileRaw);
-
-  if (!token && !reference && !digits) {
-    return NextResponse.json(
-      { error: "Enter your EOI reference (e.g. EOI-2026-ABC123) or a valid 10-digit mobile number" },
-      { status: 422 },
-    );
+  const digits = parsed.data.mobile.replace(/\D/g, "").slice(-10);
+  if (digits.length !== 10) {
+    return NextResponse.json({ error: "Enter a valid 10-digit mobile number" }, { status: 422 });
   }
 
   try {
     const supabase = createServiceSupabase();
-    let query = supabase.from("expression_of_interest").select(EOI_PREFILL_SELECT);
-
-    if (token.length >= 32) {
-      query = query.eq("registration_token_hash", hashInviteToken(token));
-    } else if (reference) {
-      query = query.eq("reference_number", reference);
-    } else if (digits) {
-      query = query.or(`mobile.eq.${digits},mobile.eq.91${digits},mobile.eq.+91${digits}`);
-    }
-
-    const { data: rows, error } = await query.order("created_at", { ascending: false }).limit(1);
+    const { data: rows, error } = await supabase
+      .from("expression_of_interest")
+      .select(
+        "business_name, entity_type, year_established, business_city, business_state, business_address, contact_person_name, contact_role, mobile, email, its_number, pan_number, gst_number, gst_status, msme_status, category_selections, capability_description, created_at",
+      )
+      .or(`mobile.eq.${digits},mobile.eq.91${digits},mobile.eq.+91${digits}`)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
     if (error) {
       console.error("eoi-prefill:", error);

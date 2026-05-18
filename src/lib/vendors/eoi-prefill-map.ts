@@ -112,7 +112,8 @@ export function mapEoiRowToVendorPrefill(row: Record<string, unknown>): VendorRe
 
   const gstStatus = row.gst_status;
   const gstNum = row.gst_number;
-  if (gstStatus === "Registered" && typeof gstNum === "string" && gstNum.replace(/\s/g, "").length === 15) {
+  const needsGstin = gstStatus === "Registered" || gstStatus === "Composition";
+  if (needsGstin && typeof gstNum === "string" && gstNum.replace(/\s/g, "").length === 15) {
     out.gst_registered = true;
     out.gstin = gstNum.toUpperCase().replace(/\s/g, "");
   } else {

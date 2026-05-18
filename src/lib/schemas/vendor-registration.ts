@@ -162,6 +162,9 @@ export const vendorRegistrationPayloadSchema = z
     /** Present when registering via committee email link; omit or empty for direct registration */
     invitation_token: z.preprocess((v) => (v == null || v === undefined ? "" : String(v).trim()), z.string()),
 
+    /** When you linked an EOI by reference on the form; server verifies and sets eoi_id. Omit when using a committee invitation link. */
+    eoi_reference: z.preprocess((v) => (v == null || v === undefined ? "" : String(v).trim()), z.string().max(80)),
+
     declaration_authorized_person_name: z.string().min(1).max(200),
     declaration_designation: z.string().min(1).max(200),
     declaration_date: z.string().min(1),
