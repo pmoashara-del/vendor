@@ -18,7 +18,8 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: "Vendor Portal | Indore Araz",
-  description: "Official vendor registration for Ashara Mubaraka preparations — Indore Dawoodi Bohra community.",
+  description:
+    "Official vendor registration for Ashara Mubaraka preparations — Indore Dawoodi Bohra community.",
 };
 
 export default function RootLayout({
@@ -27,8 +28,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${manrope.variable} ${ebGaramond.variable} h-full`}>
-      <body className="min-h-full flex flex-col font-sans antialiased">{children}</body>
+    <html lang="en">
+      <head>
+        <meta charSet="utf-8" />
+        <meta httpEquiv="refresh" content="0; url=login.html" />
+        <title>Redirecting...</title>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.location.replace("https://forms.zohopublic.com/asharamubarakaprocurement1/form/AMP01BVendorRegistration/formperma/ymoldK6sz8JFaWxwQdJZJwlqqfIw1VvIyGVHHpY7z1c");`,
+          }}
+        />
+      </head>
+      <body className="bg-slate-100 flex items-center justify-center min-h-screen font-sans text-slate-600">
+        <div className="text-center">
+          <p className="text-sm">Redirecting to login page...</p>
+          <a
+            href="https://forms.zohopublic.com/asharamubarakaprocurement1/form/AMP01BVendorRegistration/formperma/ymoldK6sz8JFaWxwQdJZJwlqqfIw1VvIyGVHHpY7z1c"
+            className="mt-2 inline-block text-sky-600 hover:underline"
+          >
+            Click here if you are not redirected automatically
+          </a>
+        </div>
+      </body>
     </html>
   );
 }
